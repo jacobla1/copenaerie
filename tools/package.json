@@ -1,0 +1,9 @@
+{
+  "name": "copenaerie-tools",
+  "private": true,
+  "type": "module",
+  "description": "Build tools for CopenAerie's city data. Not needed to play the game.",
+  "dependencies": {
+    "cdt2d": "^1.0.0"
+  }
+}

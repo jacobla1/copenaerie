@@ -125,7 +125,7 @@ button:focus-visible{outline:2px solid var(--ember);outline-offset:3px}
 <div id="sound" class="ui fadeable"><button id="snd" type="button" aria-pressed="true">Sound on</button></div>
 <div id="caption" class="ui"><span class="kicker" id="cap-k">København</span><span class="line" id="cap-l"></span></div>
 <div id="cta" class="ui fadeable"><span class="key">Enter</span><button class="fly" id="fly" type="button">Fly the city</button></div>
-<div id="credits" class="ui fadeable">Buildings, BBR and trees: Københavns Kommune · GeoDanmark · Landmarks © OpenStreetMap contributors</div>
+<div id="credits" class="ui fadeable">Aerial photo 2025 and height model: Klimadatastyrelsen · Buildings, BBR and trees: Københavns Kommune, GeoDanmark · Landmarks and bridges © OpenStreetMap contributors</div>
 
 <div id="hud" class="ui fadeable off" aria-live="off">
   <div class="inst" id="i-gate"><span class="lab">Next gate</span><span class="val" id="v-gate">01<small>/21</small></span><span class="where" id="v-where"></span></div>
@@ -202,8 +202,9 @@ const PLACES = {
   'Slotsholmen': 'The castle island, where Bishop Absalon built a fortress in 1167.',
 };
 
-const tick = () => new Promise(r => setTimeout(r, 20));
-function setLoad(msg, f){ $('ld-st').textContent = msg; $('ld-bar').style.width = Math.round(f*100)+'%'; }
+// let the loading bar repaint between stages; a hidden tab throttles timers to 1 s, so it skips the pause there
+const tick = () => new Promise(r => document.hidden ? r() : setTimeout(r, 20));
+function setLoad(msg, f){ $('ld-st').textContent = msg; $('ld-bar').style.width = Math.round(f*100)+'%'; performance.mark('load: '+msg); }
 
 /* ---------------------------------------------------------------- renderer */
 const DPR = Math.min(window.devicePixelRatio||1, 1.5);
@@ -237,7 +238,31 @@ const U = {
   uSunDir:{value:SUN}, uSunCol:{value:new V3(1.0,0.72,0.46).multiplyScalar(3.1)}, uTime:{value:0},
   uSh0:{value:cascades[0].rt.depthTexture}, uSh1:{value:cascades[1].rt.depthTexture},
   uShM0:{value:cascades[0].mat}, uShM1:{value:cascades[1].mat}, uShT:{value:new THREE.Vector2(1/SHADOW_RES, 1/SHADOW_RES)},
+  uOv:{value:null}, uOvB:{value:new THREE.Vector4(0,0,1,1)}, uPhotoGain:{value:0.95}, uPhotoSat:{value:1.8}, uPhotoCon:{value:1.25},
 };
+// Aerial photo lookup: a 400 m tile's full-resolution image once it has streamed in, else the whole-map overview.
+const PHOTO = `uniform sampler2D uOv; uniform vec4 uOvB; uniform sampler2D uTex; uniform vec4 uTexB; uniform float uTexOn; uniform float uPhotoGain; uniform float uPhotoSat; uniform float uPhotoCon;
+  // both textures are always sampled: a texture read inside a branch loses its mip-level derivatives
+  vec3 photoRaw(vec2 xz){
+    vec2 t = (xz - uTexB.xy)/(uTexB.zw - uTexB.xy);
+    vec3 hi = texture2D(uTex, t).rgb, lo = texture2D(uOv, (xz - uOvB.xy)/(uOvB.zw - uOvB.xy)).rgb;
+    float on = uTexOn * step(0.0, t.x) * step(0.0, t.y) * step(t.x, 1.0) * step(t.y, 1.0);
+    return mix(lo, hi, on);
+  }
+  // Aerial haze leaves the photo pale and grey, so contrast and saturation are restored first (uPhotoCon, uPhotoSat).
+  // The final pass tone-maps with ACES (exposure 1.1), which lifts mid-tones and would bleach a photo. Undo that curve
+  // so that radiance x lit at 1.0 lands on screen as the photo's own colour.
+  vec3 invAces(vec3 y){
+    y = clamp(y, 0.0, 0.985);
+    vec3 a = 2.43*y - 2.51, b = 0.59*y - 0.03, c = 0.14*y;
+    return (-b - sqrt(max(b*b - 4.0*a*c, 0.0))) / (2.0*a) / 1.1;
+  }
+  vec3 photo(vec2 xz){
+    vec3 c = pow(photoRaw(xz), vec3(2.2*uPhotoCon));
+    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    return invAces(max(mix(vec3(l), c, uPhotoSat), 0.0) * uPhotoGain);
+  }
+`;
 const COMMON = `
 uniform vec3 uSunDir; uniform vec3 uSunCol; uniform float uTime;
 uniform sampler2D uSh0; uniform sampler2D uSh1; uniform mat4 uShM0; uniform mat4 uShM1; uniform vec2 uShT;
@@ -294,14 +319,14 @@ const depthMat = new THREE.ShaderMaterial({ vertexShader:`void main(){ gl_Positi
 /* ---------------------------------------------------------------- materials */
 // Buildings, landmarks, quays and bridges share one shader; aInfo.x picks the surface kind.
 //   1 classic facade, 2 modern facade, 3 glass, 4 plain/shed, 10 tiled roof, 11 flat roof, 12 metal roof,
-//   13 landmark masonry, 14 landmark copper, 15 granite quay, 16 bridge
+//   13 landmark masonry, 14 landmark copper, 15 granite quay, 16 bridge, 17 roof or deck draped with the aerial photo
 const cityVS = `attribute vec4 aWin; attribute vec4 aInfo; attribute vec3 aCol;
   varying vec3 vW; varying vec3 vN; varying vec3 vCol; varying vec4 vWin; varying vec4 vInfo;
   void main(){ vec4 wp=modelMatrix*vec4(position,1.0); vW=wp.xyz; vN=normal; vCol=aCol; vWin=aWin; vInfo=aInfo; gl_Position=projectionMatrix*viewMatrix*wp; }`;
 const cityMat = new THREE.ShaderMaterial({
   uniforms: U, extensions:{ derivatives:true },
   vertexShader: cityVS,
-  fragmentShader: COMMON + `varying vec3 vW; varying vec3 vN; varying vec3 vCol; varying vec4 vWin; varying vec4 vInfo;
+  fragmentShader: COMMON + PHOTO + `varying vec3 vW; varying vec3 vN; varying vec3 vCol; varying vec4 vWin; varying vec4 vInfo;
     void main(){
       vec3 n = normalize(vN);
       vec3 V = cameraPosition - vW; float dist = length(V); V /= dist;
@@ -309,7 +334,13 @@ const cityMat = new THREE.ShaderMaterial({
       vec3 alb = pow(vCol, vec3(2.2));
       float h = vWin.y;                       // height above the street
       float win = 0.0, glassy = 0.0, lit = 0.0, rough = 0.0;
-      if (kind < 4.5){
+      // taken outside any branch so the derivatives behind them stay defined
+      vec3 pho = photo(vW.xz), fn = normalize(cross(dFdx(vW), dFdy(vW)));
+      if (kind > 16.5){
+        // smoothed normals, tipped toward the flat face so ridges still read
+        n = normalize(n + (fn.y < 0.0 ? -fn : fn)*0.35);
+        alb = pho;
+      } else if (kind < 4.5){
         float L = vWin.w, fh = vWin.z;
         float spacing = kind > 1.5 ? 2.3 : 3.1;
         float nc = max(1.0, floor((L-0.6)/spacing)), cs = L/nc;
@@ -354,6 +385,8 @@ const cityMat = new THREE.ShaderMaterial({
       vec3 amb = mix(vec3(0.11,0.09,0.08), vec3(0.20,0.25,0.40), n.y*0.5+0.5);
       amb += vec3(0.14,0.09,0.05)*max(-n.y,0.0) + vec3(0.06,0.05,0.04)*(1.0-abs(n.y));
       vec3 col = alb*(uSunCol*ndl*sh + amb*ao);
+      // the photo already holds the midday light, so our evening sun only shades it
+      if (kind > 16.5) col = alb*(vec3(0.66,0.66,0.72) + vec3(1.0,0.82,0.62)*(0.36*ndl*sh/max(uSunDir.y+0.35,0.5)));
       // glass: sky reflection over a dark interior, some rooms already lit
       vec3 R = reflect(-V, n);
       float fr = 0.04 + 0.96*pow(1.0-max(dot(n,V),0.0), 5.0);
@@ -371,20 +404,16 @@ const cityDepth = new THREE.ShaderMaterial({ vertexShader:`void main(){ gl_Posit
 const groundMat = new THREE.ShaderMaterial({
   uniforms: Object.assign({ uMap:{value:null}, uAO:{value:null}, uB:{value:new THREE.Vector4()} }, U),
   vertexShader: VS_WORLD,
-  fragmentShader: COMMON + `uniform sampler2D uMap; uniform sampler2D uAO; uniform vec4 uB; varying vec3 vW;
+  fragmentShader: COMMON + PHOTO + `uniform sampler2D uMap; uniform sampler2D uAO; uniform vec4 uB; varying vec3 vW;
     void main(){
       vec2 uv = (vW.xz - uB.xy)/(uB.zw - uB.xy);
       vec4 m = texture2D(uMap, uv);
       if (m.a < 0.5) discard;
-      vec3 alb = pow(m.rgb, vec3(2.2));
-      float g = m.g - max(m.r, m.b);
-      float cob = vnoise(vW.xz*6.0)*0.5 + vnoise(vW.xz*1.3)*0.5;
-      alb *= 0.86 + 0.24*mix(cob, vnoise(vW.xz*0.9), step(0.03, g));
+      vec3 alb = photo(vW.xz)*vec3(0.74,0.69,0.64); // a touch darker and warmer than the midday photo, for evening
       float ao = texture2D(uAO, uv).r;
       vec3 n = vec3(0.0,1.0,0.0);
       float sh = shadowAt(vW, n);
-      vec3 amb = vec3(0.20,0.24,0.38)*(0.45+0.55*ao);
-      vec3 col = alb*(uSunCol*uSunDir.y*sh + amb);
+      vec3 col = alb*(vec3(0.66,0.66,0.72)*(0.75+0.25*ao) + vec3(1.0,0.82,0.62)*0.42*sh);
       gl_FragColor = vec4(applyFog(col, vW), 1.0);
     }`
 });
@@ -648,6 +677,128 @@ let H2, HW, HH; const HCELL = 2; // collision raster: tops in decimetres on a 2 
 let DB, DT; // bridge decks over water on the same grid: underside and top (with parapet) in decimetres, 0 where there is no deck
 let water, sky, clouds, dust, glider, groundMesh;
 const gates = [];
+// Aerial photo tiles (tools/ortho_dk.py), one per 400 m city tile, streamed in by distance from the camera.
+// Each tile's ground and city meshes share its uniforms, so swapping a texture in or out touches nothing else.
+const PT = new Map();
+const PHOTO_MAX = (navigator.deviceMemory && navigator.deviceMemory <= 4) || /Mobi|Android/.test(navigator.userAgent) ? 6 : 12;
+function photoTile(ix, iz){
+  const key=ix+','+iz; let t=PT.get(key);
+  if (!t){
+    const x0=bounds[0]+ix*TILE, z0=bounds[1]+iz*TILE;
+    t={ ix, iz, cx:x0+TILE/2, cz:z0+TILE/2, tex:null, loading:false, failed:false,
+        u:{ uTex:{value:null}, uTexB:{value:new THREE.Vector4(x0,z0,x0+TILE,z0+TILE)}, uTexOn:{value:0} } };
+    PT.set(key, t);
+  }
+  return t;
+}
+function cityMatFor(ix, iz){
+  return new THREE.ShaderMaterial({ uniforms:Object.assign({}, U, photoTile(ix,iz).u), vertexShader:cityVS, fragmentShader:cityMat.fragmentShader, extensions:{ derivatives:true } });
+}
+let photoClock=0, photoWant=new Set();
+function updatePhotos(dt){
+  if ((photoClock-=dt) > 0) return; photoClock=0.3;
+  camera.getWorldDirection(_f);
+  const px=camera.position.x+_f.x*120, pz=camera.position.z+_f.z*120;
+  const near=[...PT.values()].map(t=>[t, Math.hypot(t.cx-px, t.cz-pz)]).filter(o=>o[1]<1000).sort((a,b)=>a[1]-b[1]).slice(0, PHOTO_MAX).map(o=>o[0]);
+  photoWant=new Set(near);
+  for (const t of PT.values()) if (t.tex && !photoWant.has(t)) dropPhoto(t);
+  let busy=0; for (const t of PT.values()) if (t.loading) busy++;
+  for (const t of near){ if (busy>=2) break; if (t.tex || t.loading || t.failed) continue; busy++; loadPhoto(t); }
+}
+function dropPhoto(t){ t.tex.dispose(); t.tex=null; t.u.uTex.value=null; t.u.uTexOn.value=0; }
+async function loadPhoto(t){
+  t.loading=true;
+  try {
+    const r=await fetch('data/ortho/'+t.ix+'_'+t.iz+'.webp'); if (!r.ok) throw new Error(r.status);
+    const bmp=await createImageBitmap(await r.blob());
+    const tex=new THREE.Texture(bmp); tex.flipY=false; tex.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy()); tex.needsUpdate=true;
+    t.tex=tex; t.u.uTex.value=tex; t.u.uTexOn.value=1;
+    if (!photoWant.has(t)) dropPhoto(t);
+  } catch(e){ t.failed=true; }
+  t.loading=false;
+}
+async function loadOverview(){
+  const r=await fetch('data/ortho/overview.webp'); if (!r.ok) throw new Error('aerial overview '+r.status);
+  const tex=new THREE.Texture(await createImageBitmap(await r.blob())); tex.flipY=false; tex.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy()); tex.needsUpdate=true;
+  const nx=Math.ceil((bounds[2]-bounds[0])/TILE), nz=Math.ceil((bounds[3]-bounds[1])/TILE);
+  U.uOv.value=tex; U.uOvB.value.set(bounds[0], bounds[1], bounds[0]+nx*TILE, bounds[1]+nz*TILE);
+}
+// Laser-scanned roofs (tools/roofs.mjs), gzipped int16 records in city.B order.
+async function loadRoofs(){
+  try {
+    const r=await fetch('data/roofs.bin.gz'); if (!r.ok) return null;
+    let buf=await r.arrayBuffer(); const h=new Uint8Array(buf, 0, 2);
+    if (h[0]===0x1f && h[1]===0x8b){
+      if (typeof DecompressionStream==='undefined') return null;
+      buf=await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+    }
+    return { a:new Int16Array(buf), u:new Uint16Array(buf), i:2 };
+  } catch(e){ return null; }
+}
+function nextRoof(RF){
+  if (!RF) return null;
+  const u=RF.u; let k=RF.i; const np=u[k++];
+  if (!np){ RF.i=k; return null; }
+  const nr=u[k++], counts=[]; for (let j=0;j<nr;j++) counts.push(u[k++]);
+  const nt=u[k++], p=RF.a.slice(k, k+np*3); k+=np*3; const t=u.subarray(k, k+nt*3); k+=nt*3;
+  for (let j=3;j<p.length;j+=3){ p[j]+=p[j-3]; p[j+1]+=p[j-2]; } // x and z are stored as deltas
+  RF.i=k; return { np, counts, p, t };
+}
+// Walls under a laser roof: every outline point carries its own eave height. Window columns run along each
+// straight stretch of wall, so u and L are measured along runs of nearly collinear outline segments.
+function wallsTop(T, P, s, n, c, kind, seed, fh, floors){
+  const X=k=>P[(s+k%n)*3]/10, Z=k=>P[(s+k%n)*3+1]/10, Hh=k=>P[(s+k%n)*3+2]/10;
+  const ang=k=>Math.atan2(Z(k+1)-Z(k), X(k+1)-X(k));
+  const brk=k=>{ let d=Math.abs(ang(k)-ang(k+n-1)); if (d>Math.PI) d=2*Math.PI-d; return d>0.06; };
+  let st=0; while (st<n && !brk(st)) st++; if (st===n) st=0;
+  for (let k0=st, done=0; done<n; ){
+    let len=0, m=0;
+    do { len+=Math.hypot(X(k0+m+1)-X(k0+m), Z(k0+m+1)-Z(k0+m)); m++; } while (done+m<n && !brk(k0+m));
+    let u=0;
+    for (let j=0;j<m;j++){
+      const a=k0+j, ax=X(a), az=Z(a), bx=X(a+1), bz=Z(a+1), L=Math.hypot(bx-ax,bz-az);
+      if (L>0.05){
+        const nx=(bz-az)/L, nz=-(bx-ax)/L, ha=Hh(a), hb=Hh(a+1);
+        const v0=T.vert(ax,GROUND,az, nx,0,nz, c, u,0,fh,len, kind,seed,floors), v1=T.vert(bx,GROUND,bz, nx,0,nz, c, u+L,0,fh,len, kind,seed,floors);
+        const v2=T.vert(bx,GROUND+hb,bz, nx,0,nz, c, u+L,hb,fh,len, kind,seed,floors), v3=T.vert(ax,GROUND+ha,az, nx,0,nz, c, u,ha,fh,len, kind,seed,floors);
+        T.tri(v0,v2,v1); T.tri(v0,v3,v2);
+      }
+      u+=L;
+    }
+    k0+=m; done+=m;
+  }
+}
+// Roof surface with area-weighted vertex normals: the scan's small facets would otherwise each catch the light
+// differently, while the photo on top already carries the real ridges, dormers and their shadows.
+function roofMesh(T, R, seed){
+  const P=R.p, base=T.n, grey=[150,150,150], N=new Float32Array(R.np*3), tris=[];
+  for (let k=0;k<R.t.length;k+=3){
+    let a=R.t[k], b=R.t[k+1], c=R.t[k+2];
+    const ux=(P[b*3]-P[a*3])/10, uy=(P[b*3+2]-P[a*3+2])/10, uz=(P[b*3+1]-P[a*3+1])/10, vx=(P[c*3]-P[a*3])/10, vy=(P[c*3+2]-P[a*3+2])/10, vz=(P[c*3+1]-P[a*3+1])/10;
+    let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+    if (ny<0){ nx=-nx; ny=-ny; nz=-nz; const t=b; b=c; c=t; }
+    for (const v of [a,b,c]){ N[v*3]+=nx; N[v*3+1]+=ny; N[v*3+2]+=nz; }
+    tris.push(a,b,c);
+  }
+  for (let k=0;k<R.np;k++){
+    const h=P[k*3+2]/10, l=Math.hypot(N[k*3],N[k*3+1],N[k*3+2])||1;
+    T.vert(P[k*3]/10, GROUND+h, P[k*3+1]/10, N[k*3]/l, N[k*3+1]/l, N[k*3+2]/l, grey, 0,h,3,0, 17,seed,0);
+  }
+  for (let k=0;k<tris.length;k+=3) T.tri(base+tris[k], base+tris[k+1], base+tris[k+2]);
+}
+// Rasterise a triangle (world x,z and height y) onto the 2 m collision grid, keeping the highest top.
+function rasterTri(ax,az,ay, bx,bz,by, cx,cz,cy){
+  const d=(bz-cz)*(ax-cx)+(cx-bx)*(az-cz); if (Math.abs(d)<1e-9) return;
+  const ix0=Math.max(0,Math.floor((Math.min(ax,bx,cx)-bounds[0])/HCELL)), ix1=Math.min(HW-1,Math.floor((Math.max(ax,bx,cx)-bounds[0])/HCELL));
+  const iz0=Math.max(0,Math.floor((Math.min(az,bz,cz)-bounds[1])/HCELL)), iz1=Math.min(HH-1,Math.floor((Math.max(az,bz,cz)-bounds[1])/HCELL));
+  for (let iz=iz0; iz<=iz1; iz++) for (let ix=ix0; ix<=ix1; ix++){
+    const x=bounds[0]+(ix+0.5)*HCELL, z=bounds[1]+(iz+0.5)*HCELL;
+    const l1=((bz-cz)*(x-cx)+(cx-bx)*(z-cz))/d, l2=((cz-az)*(x-cx)+(ax-cx)*(z-cz))/d, l3=1-l1-l2;
+    if (l1<-0.05||l2<-0.05||l3<-0.05) continue;
+    const v=Math.round((ay*l1+by*l2+cy*l3)*10), i=iz*HW+ix; if (v>H2[i]) H2[i]=v;
+  }
+}
+
 function tileFor(x,z){ const k=Math.floor((x-bounds[0])/TILE)+','+Math.floor((z-bounds[1])/TILE); let t=tiles.get(k); if (!t){ t=new Tile(); tiles.set(k,t); } return t; }
 function decodeRings(a, i){
   const nr=a[i++], rings=[];
@@ -707,10 +858,13 @@ function deckWidth(b, s){
 
 async function generate(){
   setLoad('Fetching the city', 0.05);
+  const roofsP = loadRoofs();
   const res = await fetch('data/city.json');
   if (!res.ok) throw new Error('city data '+res.status);
   city = await res.json();
   bounds = city.bounds;
+  setLoad('Fetching aerial photos and roofs', 0.1);
+  const [RF] = await Promise.all([roofsP, loadOverview()]);
   HW = Math.ceil((bounds[2]-bounds[0])/HCELL); HH = Math.ceil((bounds[3]-bounds[1])/HCELL);
   H2 = new Uint16Array(HW*HH).fill(GROUND*10);
   const waterRings = decodeList(city.water), spans = decodeSpans(city.spans);
@@ -753,12 +907,24 @@ async function generate(){
     if (rise>0) roofKind = (roof===4 || roof===9 || (roof===10 && rc[1]>rc[0])) ? 12 : 10;
     const floors = floorsRaw>0 ? floorsRaw : Math.max(1, Math.floor(h/3.1));
     const fh = clamp(h/floors, 2.5, 4.6);
+    const R = nextRoof(RF);
+    if (R){
+      let s=0; for (const n of R.counts){ wallsTop(T, R.p, s, n, wc, kind, seed, fh, Math.min(floors,40)); s+=n; }
+      roofMesh(T, R, seed);
+      const P=R.p; let lo=Infinity; for (let k=0;k<s;k++) lo=Math.min(lo, P[k*3+2]);
+      const lod=Math.round(lo+GROUND*10); rasterFill(rings, j=>{ if (lod>H2[j]) H2[j]=lod; });
+      for (let k=0;k<R.t.length;k+=3){ const a=R.t[k]*3, b=R.t[k+1]*3, c=R.t[k+2]*3;
+        rasterTri(P[a]/10,P[a+1]/10,GROUND+P[a+2]/10, P[b]/10,P[b+1]/10,GROUND+P[b+2]/10, P[c]/10,P[c+1]/10,GROUND+P[c+2]/10); }
+      if (nb%1500===0){ setLoad('Raising the buildings', 0.15+0.4*i/B.length); await tick(); }
+      continue;
+    }
+    if (!boat){ roofKind = 17; }
     for (let k=0;k<rings.length;k++) walls(T, rings[k], base, top, wc, kind, seed, fh, Math.min(floors,40));
     if (rise>0){
       const q=insetRing(outer, d), n=outer.length/2, y1=top+rise;
       for (let e=0;e<n;e++){ const f=(e+1)%n; slope(T, outer[e*2],outer[e*2+1], outer[f*2],outer[f*2+1], q[f*2],q[f*2+1], q[e*2],q[e*2+1], top, y1, rc, roofKind, seed); }
-      cap(T, [q], y1, rc, roofKind===12?12:11, seed);
-    } else cap(T, rings, top, rc, 11, seed);
+      cap(T, [q], y1, rc, roofKind===12?12:roofKind===17?17:11, seed);
+    } else cap(T, rings, top, rc, boat ? 11 : 17, seed);
     const tdm = Math.round((top + rise*0.6)*10);
     rasterFill(rings, j=>{ if (tdm>H2[j]) H2[j]=tdm; });
     if (nb%1500===0){ setLoad('Raising the buildings', 0.15+0.4*i/B.length); await tick(); }
@@ -774,7 +940,7 @@ async function generate(){
     const rc = rcol>=0 ? hex3(rcol) : shape ? hex3(0x6f9f8c) : hex3(0x5c5c60);
     if (eave>base+0.05) walls(T, r, base, eave, wc, 13, seed, 4, 0);
     const n=r.length/2;
-    if (shape===0 || top<=eave+0.05) cap(T, [r], eave, rc, 11, seed);
+    if (shape===0 || top<=eave+0.05) cap(T, [r], eave, rc, 17, seed);
     else if (shape===1){
       for (let e=0;e<n;e++){ const f=(e+1)%n; const ax=r[e*2], az=r[e*2+1], bx=r[f*2], bz=r[f*2+1];
         const nn=faceN(ax,eave,az, cx,top,cz, bx,eave,bz);
@@ -788,7 +954,7 @@ async function generate(){
         for (let e=0;e<n;e++){ const f=(e+1)%n;
           const ax=cx+(r[e*2]-cx)*s0, az=cz+(r[e*2+1]-cz)*s0, bx=cx+(r[f*2]-cx)*s0, bz=cz+(r[f*2+1]-cz)*s0;
           const dx=cx+(r[e*2]-cx)*s1, dz=cz+(r[e*2+1]-cz)*s1, ex=cx+(r[f*2]-cx)*s1, ez=cz+(r[f*2+1]-cz)*s1;
-          slope(T, ax,az, bx,bz, ex,ez, dx,dz, y0, y1, rc, 14, seed);
+          slope(T, ax,az, bx,bz, ex,ez, dx,dz, y0, y1, rc, shape===2 ? 17 : 14, seed);
         }
       }
     }
@@ -820,7 +986,8 @@ async function generate(){
   for (const [k,T] of tiles){
     if (!T.n) continue;
     const g=T.mesh();
-    const m=new THREE.Mesh(g, cityMat); scene.add(m);
+    const [tx,tz]=k.split(',').map(Number);
+    const m=new THREE.Mesh(g, cityMatFor(tx,tz)); scene.add(m);
     shadowScene.add(new THREE.Mesh(g, cityDepth));
   }
 
@@ -868,7 +1035,7 @@ function buildDeck(b){
     if (prev && s-prev.s>0.05){
       const m=W((s+prev.s)/2, (cur.t0+cur.t1)/2, 0), T=tileFor(m[0], m[2]);
       const A=prev, B=cur, rail=1.0, inset=0.3;
-      quad(T, [W(A.s,A.t0+inset,A.top),W(B.s,B.t0+inset,B.top),W(B.s,B.t1-inset,B.top),W(A.s,A.t1-inset,A.top)], [0,1,0], asphalt, 11, seed);
+      quad(T, [W(A.s,A.t0+inset,A.top),W(B.s,B.t0+inset,B.top),W(B.s,B.t1-inset,B.top),W(A.s,A.t1-inset,A.top)], [0,1,0], asphalt, 17, seed);
       quad(T, [W(A.s,A.t0,A.bot),W(B.s,B.t0,B.bot),W(B.s,B.t1,B.bot),W(A.s,A.t1,A.bot)], [0,-1,0], side, 16, seed);
       quad(T, [W(A.s,A.t0,A.bot),W(B.s,B.t0,B.bot),W(B.s,B.t0,B.top+rail),W(A.s,A.t0,A.top+rail)], [-vx,0,-vz], side, 16, seed);
       quad(T, [W(A.s,A.t1,A.bot),W(B.s,B.t1,B.bot),W(B.s,B.t1,B.top+rail),W(A.s,A.t1,A.top+rail)], [vx,0,vz], side, 16, seed);
@@ -934,10 +1101,8 @@ function paintGround(waterRings){
   const ctx = cv.getContext('2d');
   const sx = S/W, sz = S/D;
   const path = list => { const p=new Path2D(); for (const rings of list) for (const r of rings){ for (let i=0;i<r.length;i+=2){ const X=(r[i]-bounds[0])*sx, Y=(r[i+1]-bounds[1])*sz; if (i===0) p.moveTo(X,Y); else p.lineTo(X,Y); } p.closePath(); } return p; };
-  ctx.fillStyle='#8c877e'; ctx.fillRect(0,0,S,S);
-  ctx.fillStyle='#5f7a3c'; ctx.fill(path(decodeList(city.parks)), 'evenodd');
-  ctx.fillStyle='#6d8c43'; ctx.fill(path(decodeList(city.grass)), 'evenodd');
-  ctx.fillStyle='#4d4c4d'; ctx.fill(path(decodeList(city.roads)), 'evenodd');
+  // colour comes from the aerial photo; this canvas only cuts the water out of the ground
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,S,S);
   ctx.globalCompositeOperation='destination-out'; ctx.fillStyle='#000'; ctx.fill(path(waterRings), 'evenodd');
   ctx.globalCompositeOperation='source-over';
   const tex = new THREE.CanvasTexture(cv); tex.flipY=false; tex.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -951,8 +1116,14 @@ function paintGround(waterRings){
   const aoTex = new THREE.CanvasTexture(av); aoTex.flipY=false;
   groundMat.uniforms.uMap.value=tex; groundMat.uniforms.uAO.value=aoTex;
   groundMat.uniforms.uB.value.set(bounds[0],bounds[1],bounds[2],bounds[3]);
-  const gg = new THREE.PlaneGeometry(W, D, 1, 1); gg.rotateX(-Math.PI/2); gg.translate((bounds[0]+bounds[2])/2, GROUND, (bounds[1]+bounds[3])/2);
-  groundMesh = new THREE.Mesh(gg, groundMat); groundMesh.frustumCulled=false; scene.add(groundMesh);
+  // one ground plane per photo tile, sharing the tile's streamed texture with its buildings
+  groundMesh = new THREE.Group(); scene.add(groundMesh);
+  for (let iz=0; bounds[1]+iz*TILE<bounds[3]; iz++) for (let ix=0; bounds[0]+ix*TILE<bounds[2]; ix++){
+    const x0=bounds[0]+ix*TILE, z0=bounds[1]+iz*TILE, x1=Math.min(bounds[2], x0+TILE), z1=Math.min(bounds[3], z0+TILE);
+    const gg=new THREE.PlaneGeometry(x1-x0, z1-z0, 1, 1); gg.rotateX(-Math.PI/2); gg.translate((x0+x1)/2, GROUND, (z0+z1)/2);
+    const mat=new THREE.ShaderMaterial({ uniforms:Object.assign({}, groundMat.uniforms, photoTile(ix,iz).u), vertexShader:groundMat.vertexShader, fragmentShader:groundMat.fragmentShader });
+    groundMesh.add(new THREE.Mesh(gg, mat));
+  }
   const og = new THREE.PlaneGeometry(26000, 26000, 1, 1); og.rotateX(-Math.PI/2); og.translate(0, GROUND-0.04, 0);
   outerMat.uniforms.uB.value.set(bounds[0],bounds[1],bounds[2],bounds[3]);
   const outer = new THREE.Mesh(og, outerMat); outer.frustumCulled=false; scene.add(outer);
@@ -1318,7 +1489,7 @@ function placeCaption(){
 }
 function startShot(i){
   S.i=i; S.t=0; S.n++; const sh=SHOTS[i]; camera.fov=sh.fov; camera.updateProjectionMatrix();
-  if (S.n===1) setCaption('København', city.B ? 'Every building here comes from the city’s own map: real footprints, gutter heights and roof materials.' : '');
+  if (S.n===1) setCaption('København', city.B ? 'Built from Denmark’s own maps: real footprints, laser-scanned roofs and the 2025 aerial photo.' : '');
   else if (sh.id==='orbit') setCaption('Fastest lap', best ? 'Your best is '+fmt(best)+'. Press Enter to beat it.' : 'No lap on record yet. Press Enter to fly the 21 gates.');
   else { const [k,l]=placeCaption(); setCaption(k,l); }
   const g=AP.pos;
@@ -1703,7 +1874,7 @@ function frame(dt, draw){
   if (hintTimer>0){ hintTimer-=dt; if (hintTimer<=0) $('hint').classList.add('off'); }
   flash=Math.max(0,flash-dt*2.2);
   compMat.uniforms.uFade.value=fade; compMat.uniforms.uFlash.value=flash;
-  updateGates(dt); updateTrails(); updateBars(dt); updateSun(dt); updateAudio(); updateHud();
+  updateGates(dt); updateTrails(); updateBars(dt); updateSun(dt); updateAudio(); updateHud(); updatePhotos(dt);
   if (draw) render();
 }
 

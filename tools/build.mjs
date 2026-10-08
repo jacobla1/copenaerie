@@ -5,10 +5,12 @@ import fs from 'fs';
 import zlib from 'zlib';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { loadNdsm, roofFor, opts as roofOpts } from './roofs.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RAW = path.join(HERE, 'raw');
 const OUT = path.join(HERE, '..', 'data', 'city.json');
+const ROOFS_OUT = path.join(HERE, '..', 'data', 'roofs.bin.gz');
 const load = n => JSON.parse(fs.readFileSync(path.join(RAW, n + '.json'), 'utf8'));
 
 /* ------------------------------------------------------------ projection */
@@ -206,6 +208,40 @@ lms.sort((a,b)=>a.top-b.top);
 for (const l of lms) fillPoly([l.r], i=>{ const v=l.shape?l.eave+(l.top-l.eave)*0.5:l.top; if (v>HR[i]) HR[i]=v; });
 console.log('landmark parts', lms.length);
 
+/* ------------------------------------------------------------ real roofs from Danmarks Hoejdemodel */
+// Optional: needs tools/raw/dk/ndsm.* from fetch_dk.py + mosaic_dk.py. Without it every roof stays procedural.
+const DK = path.join(RAW, 'dk');
+let roofs = null;
+function triRaster(A, B, C, fn){ // 1 m cells whose centre lies in triangle ABC ([x,z,h]); fn(index, height)
+  const d=(B[1]-C[1])*(A[0]-C[0])+(C[0]-B[0])*(A[1]-C[1]); if (Math.abs(d)<1e-9) return;
+  const x0=Math.max(0,Math.floor(Math.min(A[0],B[0],C[0])-RX0)), x1=Math.min(RW-1,Math.ceil(Math.max(A[0],B[0],C[0])-RX0));
+  const z0=Math.max(0,Math.floor(Math.min(A[1],B[1],C[1])-RZ0)), z1=Math.min(RH-1,Math.ceil(Math.max(A[1],B[1],C[1])-RZ0));
+  for (let iz=z0; iz<=z1; iz++) for (let ix=x0; ix<=x1; ix++){
+    const x=RX0+ix+0.5, z=RZ0+iz+0.5;
+    const l1=((B[1]-C[1])*(x-C[0])+(C[0]-B[0])*(z-C[1]))/d, l2=((C[1]-A[1])*(x-C[0])+(A[0]-C[0])*(z-C[1]))/d, l3=1-l1-l2;
+    if (l1>=0 && l2>=0 && l3>=0) fn(iz*RW+ix, A[2]*l1+B[2]*l2+C[2]*l3);
+  }
+}
+if (fs.existsSync(path.join(DK, 'ndsm.json'))){
+  roofOpts.tol = 0.8;
+  const G = loadNdsm(DK, ORIGIN);
+  const LM = new Uint8Array(RW*RH); for (const l of lms) fillPoly([l.r], i=>{ LM[i]=1; });
+  const skip = (x,z) => { const ix=Math.floor(x-RX0), iz=Math.floor(z-RZ0); return ix>=0 && iz>=0 && ix<RW && iz<RH && LM[iz*RW+ix]===1; };
+  let nt=0, np=0, t0=Date.now();
+  roofs = blds.map(b => {
+    if (b.boat) return null;
+    const r = roofFor(G, b.rings, skip); if (!r) return null;
+    // the collision/course raster follows the real roof surface
+    let lo=Infinity; for (const [s,e] of r.rings) for (let k=s;k<e;k++) lo=Math.min(lo, r.pts[k][2]);
+    fillPoly(b.rings, i=>{ HR[i]=lo; });
+    for (const t of r.tris) triRaster(r.pts[t[0]], r.pts[t[1]], r.pts[t[2]], (i,h)=>{ if (h>HR[i]) HR[i]=h; });
+    b.h = Math.max(2, lo);
+    nt+=r.tris.length; np+=r.pts.length; return r;
+  });
+  for (const l of lms) fillPoly([l.r], i=>{ const v=l.shape?l.eave+(l.top-l.eave)*0.5:l.top; if (v>HR[i]) HR[i]=v; });
+  console.log('laser roofs', roofs.filter(Boolean).length, 'of', blds.length, 'points', np, 'triangles', nt, ((Date.now()-t0)/1000).toFixed(0)+' s');
+} else console.log('no height model in tools/raw/dk: roofs stay procedural (see tools/fetch_dk.py)');
+
 /* ------------------------------------------------------------ ground layers */
 function polys(features, filter, tol, minA){
   const out=[];
@@ -226,10 +262,7 @@ function polys(features, filter, tol, minA){
 }
 const vand=load('vand_oversigtskort').features;
 const water=polys(vand, null, 0.4, 4);
-const roads=polys(load('vejflade').features, null, 0.5, 4);
-const grass=polys(load('dp_graes').features, null, 0.5, 6);
-const parks=polys(load('park_groent_omr_oversigtskort').features, null, 0.8, 20);
-console.log('water', water.length, 'roads', roads.length, 'grass', grass.length, 'parks', parks.length);
+console.log('water', water.length);
 
 /* ------------------------------------------------------------ bridges you can fly under */
 // Outlines from OpenStreetMap (man_made=bridge). The municipal water layer stops at each bridge face, so the water
@@ -318,13 +351,29 @@ const L=[]; for (const l of lms){ L.push(dm(l.base), dm(l.eave), dm(l.top), l.sh
 const encList = list => { const o=[list.length]; for (const rings of list) encRings(o, rings); return o; };
 const SP=[spans.length]; for (const b of spans){ SP.push(dm(b.c[0]), dm(b.c[1]), Math.round(b.u[0]*1e4), Math.round(b.u[1]*1e4), dm(b.pa), dm(b.pb), dm(b.wa), dm(b.wb), dm(b.clear), dm(b.thick), b.piers.length, ...b.piers.map(dm)); encRings(SP, [b.r]); }
 const TR=[]; for (const t of trees) TR.push(dm(t[0]), dm(t[1]), dm(t[2]), dm(t[3]));
-const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), roads:encList(roads), grass:encList(grass), parks:encList(parks), spans:SP, trees:TR };
+const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), spans:SP, trees:TR };
 const json = JSON.stringify(city);
 fs.writeFileSync(OUT, json);
+if (roofs){
+  // data/roofs.bin.gz: one int16 stream, buildings in city.B order.
+  // per building: npts (0 = procedural roof); then nrings, the boundary point count of each ring, ntris,
+  // points as x, z, height in decimetres (x and z as deltas from the previous point; outline points first, ring by
+  // ring), and triangle indices.
+  const R=[blds.length & 0x7fff, blds.length >> 15];
+  for (const r of roofs){
+    if (!r){ R.push(0); continue; }
+    R.push(r.pts.length, r.rings.length, ...r.rings.map(([s,e])=>e-s), r.tris.length);
+    let px=0, pz=0; for (const p of r.pts){ const x=dm(p[0]), z=dm(p[1]); R.push(x-px, z-pz, dm(p[2])); px=x; pz=z; }
+    for (const t of r.tris) R.push(t[0], t[1], t[2]);
+  }
+  const buf = zlib.gzipSync(Buffer.from(Int16Array.from(R).buffer), { level: 9 });
+  fs.writeFileSync(ROOFS_OUT, buf);
+  console.log('wrote', ROOFS_OUT, (R.length*2/1e6).toFixed(1)+' MB raw', (buf.length/1e6).toFixed(2)+' MB gzip');
+}
 console.log('wrote', OUT, (json.length/1e6).toFixed(2)+' MB', 'gzip', (zlib.gzipSync(json).length/1e6).toFixed(2)+' MB', 'bounds', BOUNDS);
 
 /* ------------------------------------------------------------ optional preview + course check */
-export { HR, RW, RH, RX0, RZ0, llW, BOUNDS, water, spans, previewImage, writePNG };
+export { HR, RW, RH, RX0, RZ0, llW, BOUNDS, ORIGIN, water, spans, blds, lms, previewImage, writePNG };
 if (process.argv.includes('--preview')){ const { W, H, img } = previewImage(2); writePNG(path.join(HERE,'raw','preview.png'), W, H, img); console.log('preview', W, H); }
 function previewImage(S, crop){
   crop = crop || [0,0,RW,RH];
