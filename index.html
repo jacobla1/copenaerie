@@ -181,7 +181,7 @@ const GROUND = 2;
 const SUN = (() => { const az=248*Math.PI/180, el=12*Math.PI/180; return new V3(Math.sin(az)*Math.cos(el), Math.sin(el), -Math.cos(az)*Math.cos(el)).normalize(); })();
 
 // Race course: [x, z, altitude, name]; names starting with '~' only shape the path (see tools/course-points.mjs).
-const COURSE = [[20,845,9,"Christianshavns Kanal"],[150,948,9,"Christianshavns Kanal"],[262,1018,18,"~corner"],[395,935,10,"Christianshavn"],[560,745,9,"Vor Frelsers Kirke"],[690,590,10,"Torvegade"],[855,350,9,"Overgaden"],[925,250,14,"~mouth"],[790,112,11,"Inderhavnsbroen"],[790,-150,11,"Inner harbour"],[905,-292,10,"The Opera"],[796,-367,13,"Amaliehaven"],[566,-464,22,"Amalienborg"],[410,-528,26,"Marble Church"],[345,-388,18,"Bredgade"],[282,-235,20,"Bredgade"],[236,-112,21,"~nytorv"],[332,-30,10,"Nyhavn"],[471,27,8,"Nyhavn"],[600,80,9,"Nyhavn mouth"],[520,285,10,"Inner harbour"],[262,580,13,"Knippelsbro"],[-150,470,48,"Christiansborg"],[-200,650,36,"Slotsholmen"],[-100,790,20,"~quay"]];
+const COURSE = [[20,845,9,"Christianshavns Kanal"],[150,948,9,"Christianshavns Kanal"],[262,1018,18,"~corner"],[395,935,10,"Christianshavn"],[560,745,9,"Vor Frelsers Kirke"],[690,590,10,"Torvegade"],[855,350,9,"Overgaden"],[925,250,14,"~mouth"],[790,112,11,"Inderhavnsbroen"],[790,-150,11,"Inner harbour"],[905,-292,10,"The Opera"],[796,-367,13,"Amaliehaven"],[566,-464,22,"Amalienborg"],[410,-528,26,"Marble Church"],[345,-388,18,"Bredgade"],[282,-235,20,"Bredgade"],[236,-112,21,"~nytorv"],[332,-30,10,"Nyhavn"],[471,27,11,"Nyhavn"],[600,80,11,"Nyhavn mouth"],[520,285,10,"Inner harbour"],[262,580,13,"Knippelsbro"],[-150,470,48,"Christiansborg"],[-200,650,36,"Slotsholmen"],[-100,790,20,"~quay"]];
 const PLACES = {
   'Christianshavns Kanal': 'Dug in the 1600s through the new merchant town. Houseboats line both quays.',
   'Christianshavn': 'Christian IV laid the district out on reclaimed land in 1618.',
@@ -645,6 +645,7 @@ function shade(rgb, k){ return [clamp(Math.round(rgb[0]*k),0,255), clamp(Math.ro
 /* ---------------------------------------------------------------- city build */
 let city, bounds, tiles = new Map(), TILE = 400;
 let H2, HW, HH; const HCELL = 2; // collision raster: tops in decimetres on a 2 m grid
+let DB, DT; // bridge decks over water on the same grid: underside and top (with parapet) in decimetres, 0 where there is no deck
 let water, sky, clouds, dust, glider, groundMesh;
 const gates = [];
 function tileFor(x,z){ const k=Math.floor((x-bounds[0])/TILE)+','+Math.floor((z-bounds[1])/TILE); let t=tiles.get(k); if (!t){ t=new Tile(); tiles.set(k,t); } return t; }
@@ -674,6 +675,35 @@ function surfaceAt(x,z){
   return H2[iz*HW+ix]/10;
 }
 function isWater(x,z){ return surfaceAt(x,z) < 0.5; }
+function deckIdx(x,z){
+  const ix=Math.floor((x-bounds[0])/HCELL), iz=Math.floor((z-bounds[1])/HCELL);
+  if (ix<0||iz<0||ix>=HW||iz>=HH) return -1;
+  const i=iz*HW+ix; return DT[i] ? i : -1;
+}
+// Bridges from OpenStreetMap outlines: a hump from street level at each end to the clearance over the water.
+function decodeSpans(a){
+  const out=[]; let i=1;
+  for (let k=0;k<a[0];k++){
+    const b={ cx:a[i]/10, cz:a[i+1]/10, ux:a[i+2]/1e4, uz:a[i+3]/1e4, pa:a[i+4]/10, pb:a[i+5]/10, wa:a[i+6]/10, wb:a[i+7]/10, clear:a[i+8]/10, thick:a[i+9]/10, piers:[] };
+    const np=a[i+10]; i+=11; for (let j=0;j<np;j++) b.piers.push(a[i++]/10);
+    const [rings, ni]=decodeRings(a, i); i=ni; b.r=rings[0];
+    const L=Math.hypot(b.ux,b.uz); b.ux/=L; b.uz/=L;
+    b.rise=b.clear+b.thick-GROUND; b.ramp=Math.min((b.pb-b.pa)/2, Math.max(6, b.rise/0.14));
+    out.push(b);
+  }
+  return out;
+}
+function deckTop(b, s){ const k=clamp(Math.min(s-b.pa, b.pb-s)/b.ramp, 0, 1); return GROUND + b.rise*k*k*(3-2*k); }
+// Across-deck extent of the outline at distance s along the axis, or null past its ends.
+function deckWidth(b, s){
+  const r=b.r, n=r.length/2; let t0=Infinity, t1=-Infinity;
+  for (let i=0;i<n;i++){ const j=(i+1)%n;
+    const sa=(r[i*2]-b.cx)*b.ux+(r[i*2+1]-b.cz)*b.uz, sb=(r[j*2]-b.cx)*b.ux+(r[j*2+1]-b.cz)*b.uz;
+    if ((sa<=s)===(sb<=s)) continue;
+    const ta=-(r[i*2]-b.cx)*b.uz+(r[i*2+1]-b.cz)*b.ux, tb=-(r[j*2]-b.cx)*b.uz+(r[j*2+1]-b.cz)*b.ux, t=ta+(s-sa)/(sb-sa)*(tb-ta);
+    t0=Math.min(t0,t); t1=Math.max(t1,t); }
+  return t1>t0 ? [t0,t1] : null;
+}
 
 async function generate(){
   setLoad('Fetching the city', 0.05);
@@ -683,9 +713,14 @@ async function generate(){
   bounds = city.bounds;
   HW = Math.ceil((bounds[2]-bounds[0])/HCELL); HH = Math.ceil((bounds[3]-bounds[1])/HCELL);
   H2 = new Uint16Array(HW*HH).fill(GROUND*10);
-  const waterRings = decodeList(city.water), bridgeRings = decodeList(city.bridges);
+  const waterRings = decodeList(city.water), spans = decodeSpans(city.spans);
   for (const w of waterRings) rasterFill(w, i=>{ H2[i]=0; });
-  for (const b of bridgeRings) rasterFill(b, i=>{ H2[i]=Math.max(H2[i], (GROUND+0.7)*10); });
+  DB = new Uint16Array(HW*HH); DT = new Uint16Array(HW*HH);
+  for (const b of spans) rasterFill([b.r], i=>{
+    const x=bounds[0]+(i%HW+0.5)*HCELL, z=bounds[1]+(Math.floor(i/HW)+0.5)*HCELL, top=deckTop(b, (x-b.cx)*b.ux+(z-b.cz)*b.uz);
+    if (H2[i]===0){ DB[i]=Math.max(1, Math.round((top-b.thick)*10)); DT[i]=Math.round((top+1.0)*10); }
+    else H2[i]=Math.max(H2[i], Math.round(top*10));
+  });
 
   setLoad('Raising the buildings', 0.15); await tick();
   const B=city.B; let i=0, nb=0;
@@ -772,25 +807,15 @@ async function generate(){
         const f=(e+1)%n, ax=rr[e*2], az=rr[e*2+1], bx=rr[f*2], bz=rr[f*2+1];
         const onEdge = v => Math.abs(v[0]-bounds[0])<2 || Math.abs(v[0]-bounds[2])<2 || Math.abs(v[1]-bounds[1])<2 || Math.abs(v[1]-bounds[3])<2;
         if (onEdge([ax,az]) && onEdge([bx,bz])) continue;
-        const T=tileFor((ax+bx)/2,(az+bz)/2);
+        const L=Math.hypot(bx-ax,bz-az); if (L<0.05) continue;
+        const mx=(ax+bx)/2, mz=(az+bz)/2, ox=(bz-az)/L*1.2, oz=-(bx-ax)/L*1.2;
+        if (isWater(mx+ox,mz+oz) && isWater(mx-ox,mz-oz)) continue; // a cut where the water layer stops at a bridge face
+        const T=tileFor(mx,mz);
         walls(T, new Float32Array([ax,az,bx,bz]), -0.4, GROUND, granite, 15, 0, 3, 0);
       }
     });
   }
-  const steel=[96,92,88];
-  for (const rings of bridgeRings){
-    const r=rings[0]; let rr=r;
-    if (ringArea(r)<0){ rr=new Float32Array(r.length); const n=r.length/2; for (let j=0;j<n;j++){ rr[j*2]=r[(n-1-j)*2]; rr[j*2+1]=r[(n-1-j)*2+1]; } }
-    const n=rr.length/2;
-    for (let e=0;e<n;e++){
-      const f=(e+1)%n, ax=rr[e*2], az=rr[e*2+1], bx=rr[f*2], bz=rr[f*2+1], L=Math.hypot(bx-ax,bz-az); if (L<0.5) continue;
-      const mx=(ax+bx)/2+(bz-az)/L*2.5, mz=(az+bz)/2-(bx-ax)/L*2.5;
-      if (!isWater(mx,mz)) continue;
-      const T=tileFor(mx,mz);
-      walls(T, new Float32Array([ax,az,bx,bz]), 0.6, GROUND+0.9, steel, 16, 0, 3, 0);
-      walls(T, new Float32Array([bx,bz,ax,az]), GROUND, GROUND+0.9, steel, 16, 0, 3, 0);
-    }
-  }
+  for (const b of spans) buildDeck(b);
   buildBoats();
   for (const [k,T] of tiles){
     if (!T.n) continue;
@@ -800,7 +825,7 @@ async function generate(){
   }
 
   setLoad('Painting the streets', 0.7); await tick();
-  paintGround(waterRings, bridgeRings);
+  paintGround(waterRings);
 
   setLoad('Planting '+(city.trees.length/4).toLocaleString('en')+' trees', 0.8); await tick();
   buildTrees();
@@ -822,6 +847,49 @@ async function generate(){
   setLoad('Ready', 1);
 }
 
+// Deck, fascias, parapets and piers for one bridge. Harbour spans are steel, canal bridges granite.
+function quad(T, P, want, c, kind, seed){
+  const n=faceN(P[0][0],P[0][1],P[0][2], P[1][0],P[1][1],P[1][2], P[2][0],P[2][1],P[2][2]);
+  if (n.x*want[0]+n.y*want[1]+n.z*want[2] < 0){ P=[P[0],P[3],P[2],P[1]]; n.negate(); }
+  const v=P.map(p=>T.vert(p[0],p[1],p[2], n.x,n.y,n.z, c, 0,p[1],3,1, kind,seed,0));
+  T.tri(v[0],v[1],v[2]); T.tri(v[0],v[2],v[3]);
+}
+function buildDeck(b){
+  const big=b.clear>4, side = big ? [92,100,106] : [134,124,110], asphalt=[80,79,80], seed=hash(b.cx*0.37+b.cz*0.11);
+  const W=(s,t,y)=>[b.cx+b.ux*s-b.uz*t, y, b.cz+b.uz*s+b.ux*t];
+  const vx=-b.uz, vz=b.ux; // across the deck
+  const ss=[]; const len=b.pb-b.pa, step=Math.min(1.5, len/10);
+  for (let s=b.pa+0.02; s<b.pb-0.02; s+=step) ss.push(s);
+  ss.push(b.pb-0.02, b.wa, b.wb); ss.sort((x,y)=>x-y);
+  let prev=null;
+  for (const s of ss){
+    const w=deckWidth(b, s); if (!w){ prev=null; continue; }
+    const cur={ s, t0:w[0], t1:w[1], top:deckTop(b,s) }; cur.bot=Math.max(0.2, cur.top-b.thick);
+    if (prev && s-prev.s>0.05){
+      const m=W((s+prev.s)/2, (cur.t0+cur.t1)/2, 0), T=tileFor(m[0], m[2]);
+      const A=prev, B=cur, rail=1.0, inset=0.3;
+      quad(T, [W(A.s,A.t0+inset,A.top),W(B.s,B.t0+inset,B.top),W(B.s,B.t1-inset,B.top),W(A.s,A.t1-inset,A.top)], [0,1,0], asphalt, 11, seed);
+      quad(T, [W(A.s,A.t0,A.bot),W(B.s,B.t0,B.bot),W(B.s,B.t1,B.bot),W(A.s,A.t1,A.bot)], [0,-1,0], side, 16, seed);
+      quad(T, [W(A.s,A.t0,A.bot),W(B.s,B.t0,B.bot),W(B.s,B.t0,B.top+rail),W(A.s,A.t0,A.top+rail)], [-vx,0,-vz], side, 16, seed);
+      quad(T, [W(A.s,A.t1,A.bot),W(B.s,B.t1,B.bot),W(B.s,B.t1,B.top+rail),W(A.s,A.t1,A.top+rail)], [vx,0,vz], side, 16, seed);
+      quad(T, [W(A.s,A.t0+inset,A.top),W(B.s,B.t0+inset,B.top),W(B.s,B.t0+inset,B.top+rail),W(A.s,A.t0+inset,A.top+rail)], [vx,0,vz], side, 16, seed);
+      quad(T, [W(A.s,A.t1-inset,A.top),W(B.s,B.t1-inset,B.top),W(B.s,B.t1-inset,B.top+rail),W(A.s,A.t1-inset,A.top+rail)], [-vx,0,-vz], side, 16, seed);
+      quad(T, [W(A.s,A.t0,A.top+rail),W(B.s,B.t0,B.top+rail),W(B.s,B.t0+inset,B.top+rail),W(A.s,A.t0+inset,A.top+rail)], [0,1,0], side, 16, seed);
+      quad(T, [W(A.s,A.t1-inset,A.top+rail),W(B.s,B.t1-inset,B.top+rail),W(B.s,B.t1,B.top+rail),W(A.s,A.t1,A.top+rail)], [0,1,0], side, 16, seed);
+    }
+    prev=cur;
+  }
+  // piers on the long harbour spans, full deck width, 2.4 m thick
+  for (const p of b.piers){
+    const w=deckWidth(b, p); if (!w) continue;
+    const s0=p-1.2, s1=p+1.2, t0=w[0]+0.8, t1=w[1]-0.8, y1=Math.max(0.2, deckTop(b,p)-b.thick), m=W(p,(t0+t1)/2,0), T=tileFor(m[0], m[2]);
+    const ring=new Float32Array([W(s0,t0,0),W(s1,t0,0),W(s1,t1,0),W(s0,t1,0)].flatMap(q=>[q[0],q[2]]));
+    const rr = ringArea(ring)<0 ? new Float32Array([ring[6],ring[7],ring[4],ring[5],ring[2],ring[3],ring[0],ring[1]]) : ring;
+    walls(T, rr, -0.4, y1, side, 16, seed, 3, 0);
+    rasterFill([rr], i=>{ H2[i]=Math.max(H2[i], Math.round(y1*10)); DB[i]=0; DT[i]=0; });
+  }
+}
+
 // Nyhavn's old wooden ships, moored along both quays. Not in any dataset; placed along the canal measured from the water outline.
 function buildBoats(){
   const A=[226,-87], ux=0.9117, uz=0.411, nx=-uz, nz=ux;
@@ -835,7 +903,9 @@ function buildBoats(){
       const o = side<0 ? lo+beam*0.5+0.6 : hi-beam*0.5-0.6;
       const cx=A[0]+ux*t+nx*o, cz=A[1]+uz*t+nz*o, T=tileFor(cx,cz), seed=hash(k*5.1);
       const pt=(a,b)=>[cx+ux*a+nx*b, cz+uz*a+nz*b];
-      const hl=len/2, hb=beam/2, ring=[pt(-hl,-hb*0.85),pt(hl*0.62,-hb),pt(hl,0),pt(hl*0.62,hb),pt(-hl,hb*0.85)];
+      const hl=len/2, hb=beam/2;
+      if ([-hl-3, 0, hl+3].some(a=>deckIdx(...pt(a,0))>=0)) continue; // keep the water under Nyhavnsbroen clear
+      const ring=[pt(-hl,-hb*0.85),pt(hl*0.62,-hb),pt(hl,0),pt(hl*0.62,hb),pt(-hl,hb*0.85)];
       const r=new Float32Array(ring.flat()); if (ringArea(r)<0){ const q=ring.slice().reverse(); r.set(q.flat()); }
       const hc=hex3(pick(hulls, hash(k*7.3)));
       walls(T, r, -0.2, 1.3, hc, 16, seed, 3, 0);
@@ -857,7 +927,7 @@ function buildBoats(){
   }
 }
 
-function paintGround(waterRings, bridgeRings){
+function paintGround(waterRings){
   const maxT = renderer.capabilities.maxTextureSize, S = Math.min(4096, maxT);
   const W = bounds[2]-bounds[0], D = bounds[3]-bounds[1];
   const cv = document.createElement('canvas'); cv.width=S; cv.height=S;
@@ -869,7 +939,7 @@ function paintGround(waterRings, bridgeRings){
   ctx.fillStyle='#6d8c43'; ctx.fill(path(decodeList(city.grass)), 'evenodd');
   ctx.fillStyle='#4d4c4d'; ctx.fill(path(decodeList(city.roads)), 'evenodd');
   ctx.globalCompositeOperation='destination-out'; ctx.fillStyle='#000'; ctx.fill(path(waterRings), 'evenodd');
-  ctx.globalCompositeOperation='source-over'; ctx.fillStyle='#55524f'; ctx.fill(path(bridgeRings), 'evenodd');
+  ctx.globalCompositeOperation='source-over';
   const tex = new THREE.CanvasTexture(cv); tex.flipY=false; tex.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy());
   // contact shadow around building footprints
   const A = 1024, av=document.createElement('canvas'); av.width=A; av.height=A; const ac=av.getContext('2d');
@@ -1420,7 +1490,7 @@ function respawn(){
 }
 function crash(kind){
   P.pen+=3; P.shake=1; flash=0.55; thump();
-  toast(kind==='water' ? 'Hit the water' : kind==='street' ? 'Hit the street' : kind==='out' ? 'Left the map' : 'Clipped a building', '+3.0 s');
+  toast(kind==='water' ? 'Hit the water' : kind==='street' ? 'Hit the street' : kind==='out' ? 'Left the map' : kind==='bridge' ? 'Hit a bridge' : 'Clipped a building', '+3.0 s');
   respawn();
 }
 function hitGate(i){
@@ -1450,6 +1520,12 @@ function checkGates(){
 function playCamera(dt){
   _a.copy(P.fwd).multiplyScalar(-5.2).add(P.pos); _a.y+=1.5;
   P.camPos.lerp(_a, damp(13,dt)); keepAbove(P.camPos, 1.0);
+  // stay on the glider's side of a bridge deck
+  const ci=deckIdx(P.camPos.x,P.camPos.z), gi=deckIdx(P.pos.x,P.pos.z);
+  if (ci>=0){
+    const under = P.pos.y < (gi>=0 ? DB[gi] : DB[ci])/10;
+    if (under) P.camPos.y=Math.min(P.camPos.y, DB[ci]/10-0.35); else P.camPos.y=Math.max(P.camPos.y, DT[ci]/10+0.6);
+  }
   camera.position.copy(P.camPos);
   if (P.shake>0 && !reduceMotion){ camera.position.x+=(Math.random()-0.5)*P.shake*0.7; camera.position.y+=(Math.random()-0.5)*P.shake*0.7; }
   _up.set(0,1,0).applyQuaternion(glider.quaternion);
@@ -1492,6 +1568,7 @@ function updatePlay(dt){
     const out=P.pos.x<bounds[0]+40 || P.pos.x>bounds[2]-40 || P.pos.z<bounds[1]+40 || P.pos.z>bounds[3]-40;
     if (out) crash('out');
     else if (P.pos.y<surf+0.5) crash(surf<0.5 ? 'water' : surf<=GROUND+0.05 ? 'street' : 'building');
+    else { const di=deckIdx(P.pos.x,P.pos.z); if (di>=0 && P.pos.y>DB[di]/10-0.3 && P.pos.y<DT[di]/10+0.4) crash('bridge'); }
   }
   if (!P.done) checkGates();
   playCamera(dt);
@@ -1600,11 +1677,14 @@ let last=performance.now();
 function loop(now){
   requestAnimationFrame(loop);
   let dt=(now-last)/1000; last=now;
-  if (dt>0.05) dt=0.05; if (dt<=0) return;
+  if (dt>0.05) dt=0.05; if (dt<=0 || window.__hold) return;
   frame(dt, true);
 }
 // #debug: advance the simulation by fixed steps, for capturing stills from a background tab
-if (location.hash==='#debug') window.__dbg = { U, cascades, scene, shadowScene, camera, groundMat, cityMat, waterMat, get AP(){ return AP; },
+if (location.hash==='#debug') window.__dbg = { U, cascades, scene, shadowScene, camera, groundMat, cityMat, waterMat, get AP(){ return AP; }, get P(){ return P; },
+  // drop the glider into free flight at p heading along yaw, e.g. to try a bridge
+  place(p, yaw){ state='play'; P.done=false; P.pos.set(p[0],p[1],p[2]); P.prev.copy(P.pos); P.yaw=yaw; P.pitch=0; P.turn=0; P.roll=0; P.speed=BASE; P.cruise=BASE; P.grace=0;
+    P.fwd.set(Math.sin(yaw),0,Math.cos(yaw)); P.camPos.copy(P.fwd).multiplyScalar(-5.2).add(P.pos); P.camPos.y+=1.5; resetTrails(); },
   look(p, t, fov){ state='still'; ['hud','brand','cta','caption','sound','credits','result'].forEach(id=>show(id,false)); barsCur=0; camera.up.set(0,1,0); camera.position.set(p[0],p[1],p[2]); camera.lookAt(t[0],t[1],t[2]); camera.fov=fov||50; camera.updateProjectionMatrix(); frame(1/60, true); } };
 if (location.hash==='#debug') window.__step = (sec) => { const n=Math.round(sec*60); for (let i=0;i<n;i++) frame(1/60, i===n-1); return { state, shot:SHOTS[S.i].id, t:S.t.toFixed(2), s:Math.round(AP.s) }; };
 function frame(dt, draw){

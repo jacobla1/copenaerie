@@ -2,7 +2,7 @@
 
 A small glider run through central Copenhagen at golden hour, built from the city's own open data. It opens with a self-running cinematic flyby. Press **Enter** (or click **Fly the city**) to race a 21-gate lap: down Christianshavns Kanal, across the inner harbour to the Opera, over Amalienborg and the Marble Church, down Bredgade, through Nyhavn, over Knippelsbro and round the Christiansborg tower.
 
-This is the city sibling of [Aerie](https://github.com/jacobla1/aerie). The glider is scaled down to a 3.6 m model so it fits Copenhagen's streets and canals.
+This is the city sibling of [Aerie](https://github.com/jacobla1/aerie). The glider is scaled down to a 3.6 m model so it fits Copenhagen's streets and canals, and you can fly under the bridges: 39 of them, from the canal bridges of Christianshavn and Slotsholmen to Knippelsbro, Langebro and Inderhavnsbroen.
 
 ## Run
 
@@ -19,18 +19,21 @@ python3 -m http.server 8765
 - **Esc** returns to the flyby
 - **M** toggles sound
 
-Append `#debug` to the URL to expose `window.__step(seconds)` and `window.__dbg.look(position, target, fov)` for stepping the simulation and framing stills.
+Append `#debug` to the URL to expose `window.__step(seconds)`, `window.__dbg.look(position, target, fov)` and `window.__dbg.place(position, yaw)` for stepping the simulation, framing stills and dropping the glider anywhere (for example just short of a bridge). Set `window.__hold = true` to pause the normal frame loop.
 
 ## Where the city comes from
 
 | What | Source |
 | --- | --- |
 | ~11,800 building footprints, gutter heights, storeys, roof and wall materials, construction year | Københavns Kommune's kbhkort WFS, layer `bygning` (GeoDanmark footprints joined with BBR) |
-| Harbour, canals and lakes; land outline; road surfaces; lawns; parks; bridge decks | kbhkort layers `vand_oversigtskort`, `landflade_uden_frb`, `vejflade`, `dp_graes`, `park_groent_omr_oversigtskort`, `bro` |
+| Harbour, canals and lakes; land outline; road surfaces; lawns; parks | kbhkort layers `vand_oversigtskort`, `landflade_uden_frb`, `vejflade`, `dp_graes`, `park_groent_omr_oversigtskort` |
 | ~17,900 trees with height and crown area | kbhkort layer `automatisk_detekterede_traeer_kk_beta` |
 | Towers, spires and domes (Christiansborg, City Hall, Vor Frelsers Kirke, the Marble Church and others), plus building and roof colours where tagged | OpenStreetMap via the Overpass API |
+| Bridge outlines and the roads across them, which set each deck's direction | OpenStreetMap (`man_made=bridge`, ways tagged `bridge`) |
 
 Facade colours, windows and roof shapes are generated from the BBR materials and year, since no open dataset has textures. Nyhavn's ships are placed procedurally along the measured canal.
+
+The municipal water layer stops at each bridge face, so the build puts the water back under every OpenStreetMap bridge outline and raises the deck in a hump from street level to its clearance. Harbour spans over 55 m get about 5.4 m of clearance and piers roughly every 40 m. The canal bridges really clear only about 2.2–2.5 m, which a glider can't thread when the quays sit 2 m above the water, so in the game they get 3.4 m. Bridges aren't in any open dataset with heights, so these are approximations.
 
 **Google Earth** was not used. Its 3D tiles need an API key, and Google's terms don't allow extracting or storing them. **bbr.dk** itself is a lookup site; its data is already included through the `bygning` layer above.
 

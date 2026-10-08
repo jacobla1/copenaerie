@@ -229,8 +229,77 @@ const water=polys(vand, null, 0.4, 4);
 const roads=polys(load('vejflade').features, null, 0.5, 4);
 const grass=polys(load('dp_graes').features, null, 0.5, 6);
 const parks=polys(load('park_groent_omr_oversigtskort').features, null, 0.8, 20);
-const bridges=polys(load('bro').features, null, 0.2, 4);
-console.log('water', water.length, 'roads', roads.length, 'grass', grass.length, 'parks', parks.length, 'bridges', bridges.length);
+console.log('water', water.length, 'roads', roads.length, 'grass', grass.length, 'parks', parks.length);
+
+/* ------------------------------------------------------------ bridges you can fly under */
+// Outlines from OpenStreetMap (man_made=bridge). The municipal water layer stops at each bridge face, so the water
+// under a deck is rebuilt as the convex hull of the water vertices that fall inside the outline, and added to `water`.
+// Clearances: about 5.4 m for the harbour bridges; Christianshavn's canal bridges really give about 2.2-2.5 m, which a
+// glider cannot thread with quays 2 m above the water, so short spans get a generous 3.4 m.
+const SKIP_BRIDGE = new Set(['Dronning Louises Bro', 'Cykelslangen']);
+function hull(pts){
+  pts=pts.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]); if (pts.length<3) return pts;
+  const cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]), lo=[], up=[];
+  for (const p of pts){ while (lo.length>=2 && cr(lo[lo.length-2],lo[lo.length-1],p)<=0) lo.pop(); lo.push(p); }
+  for (let i=pts.length-1;i>=0;i--){ const p=pts[i]; while (up.length>=2 && cr(up[up.length-2],up[up.length-1],p)<=0) up.pop(); up.push(p); }
+  return lo.slice(0,-1).concat(up.slice(0,-1));
+}
+function pip(r,x,z){ let c=false; for (let i=0,j=r.length-1;i<r.length;j=i++){ const a=r[i], b=r[j]; if ((a[1]>z)!==(b[1]>z) && x<(b[0]-a[0])*(z-a[1])/(b[1]-a[1])+a[0]) c=!c; } return c; }
+function edgeDist(r,x,z){ let d=Infinity; for (let i=0;i<r.length;i++) d=Math.min(d, segDist([x,z], r[i], r[(i+1)%r.length])); return d; }
+const WAT=new Uint8Array(RW*RH); for (const w of water) fillPoly(w, i=>{ WAT[i]=1; });
+const watAt=(x,z)=>{ const ix=Math.floor(x-RX0), iz=Math.floor(z-RZ0); return ix>=0&&iz>=0&&ix<RW&&iz<RH && WAT[iz*RW+ix]===1; };
+// join a multipolygon relation's outer member ways into closed rings
+function joinOuter(members){
+  const segs=members.filter(m=>m.type==='way' && m.role!=='inner' && m.geometry).map(m=>m.geometry.map(g=>[g.lon,g.lat]));
+  const key=p=>p[0].toFixed(7)+','+p[1].toFixed(7), rings=[];
+  while (segs.length){
+    let cur=segs.shift();
+    while (key(cur[0])!==key(cur[cur.length-1])){
+      const i=segs.findIndex(sg=>key(sg[0])===key(cur[cur.length-1]) || key(sg[sg.length-1])===key(cur[cur.length-1]));
+      if (i<0) break;
+      let sg=segs.splice(i,1)[0]; if (key(sg[0])!==key(cur[cur.length-1])) sg=sg.slice().reverse();
+      cur=cur.concat(sg.slice(1));
+    }
+    rings.push(cur.map(([lon,lat])=>({lon,lat})));
+  }
+  return rings;
+}
+const osmB = [];
+for (const e of load('osm_bridges').elements){
+  if (e.type==='way' && e.geometry) osmB.push(e);
+  else if (e.type==='relation' && e.members) for (const g of joinOuter(e.members)) osmB.push({ tags:e.tags, geometry:g });
+}
+const bWays = osmB.filter(e=>e.tags && e.tags.man_made!=='bridge' && (e.tags.highway||e.tags.railway)).map(e=>e.geometry.map(g=>llW(g.lon,g.lat)));
+const spans=[];
+for (const e of osmB){
+  const t=e.tags||{}; if (t.man_made!=='bridge' || SKIP_BRIDGE.has(t.name)) continue;
+  const r=cleanRing(e.geometry.map(g=>llW(g.lon,g.lat)), 0.3); if (!r) continue;
+  const [cx,cz]=centroid(r); if (!inB(cx,cz,-60)) continue;
+  // axis: summed direction of the roads and paths that run across the outline, else the outline's long side
+  let ax=0, az=0;
+  for (const w of bWays) for (let i=0;i+1<w.length;i++){ const a=w[i], b=w[i+1]; if (!pip(r,(a[0]+b[0])/2,(a[1]+b[1])/2)) continue;
+    let dx=b[0]-a[0], dz=b[1]-a[1]; if (dx*ax+dz*az<0){ dx=-dx; dz=-dz; } ax+=dx; az+=dz; }
+  if (Math.hypot(ax,az)<3){ let best=0; for (let i=0;i<r.length;i++){ const a=r[i], b=r[(i+1)%r.length], L=Math.hypot(b[0]-a[0],b[1]-a[1]); if (L>best){ best=L; ax=b[0]-a[0]; az=b[1]-a[1]; } } }
+  const al=Math.hypot(ax,az); ax/=al; az/=al;
+  // water under the deck: hull of water vertices inside (or within 3 m of) the outline
+  const pts=[];
+  for (const w of water) for (const ring of w) for (const p of ring) if (pip(r,p[0],p[1]) || edgeDist(r,p[0],p[1])<3) pts.push(p);
+  const h=pts.length>=3 ? hull(pts) : [];
+  const hA=h.length>=3 ? Math.abs(area(h)) : 0;
+  // water span along the axis, sampled down the middle of the outline
+  const S=p=>(p[0]-cx)*ax+(p[1]-cz)*az, T=p=>-(p[0]-cx)*az+(p[1]-cz)*ax;
+  let pa=Infinity, pb=-Infinity, t0=Infinity, t1=-Infinity; for (const p of r){ pa=Math.min(pa,S(p)); pb=Math.max(pb,S(p)); t0=Math.min(t0,T(p)); t1=Math.max(t1,T(p)); }
+  const tm=(t0+t1)/2; let wa=Infinity, wb=-Infinity;
+  for (let s=pa; s<=pb; s+=0.5){ const x=cx+ax*s-az*tm, z=cz+az*s+ax*tm; if (watAt(x,z) || (hA>0 && pip(h,x,z))){ wa=Math.min(wa,s); wb=Math.max(wb,s); } }
+  if (!(wb-wa>=5)) continue;
+  if (hA>=20) water.push([h]);
+  const span=wb-wa, big=span>55;
+  const clear=big?5.4:3.4, thick=big?1.4:0.8, piers=[];
+  if (big){ const n=Math.ceil(span/40); for (let k=1;k<n;k++) piers.push(wa+span*k/n); }
+  spans.push({ name:t.name||'', c:[cx,cz], u:[ax,az], pa, pb, wa, wb, clear, thick, piers, r });
+}
+console.log('bridges', spans.length, spans.filter(s=>s.name).map(s=>s.name+' '+(s.wb-s.wa).toFixed(0)+'m').join(', '));
+for (const b of spans) fillPoly([b.r], i=>{ const v=b.clear+b.thick; if (v>HR[i]) HR[i]=v; });
 
 const trees=[];
 for (const f of load('automatisk_detekterede_traeer_kk_beta').features){
@@ -247,14 +316,15 @@ function encRings(out, rings){ out.push(rings.length); for (const r of rings){ o
 const B=[]; for (const b of blds){ B.push(dm(b.h), dm(b.rise), dm(b.d), b.wall, b.roof, b.floors, b.year, b.colW, b.colR, b.boat?1:0); encRings(B, b.rings); }
 const L=[]; for (const l of lms){ L.push(dm(l.base), dm(l.eave), dm(l.top), l.shape, l.wc, l.rc); encRings(L, [l.r]); }
 const encList = list => { const o=[list.length]; for (const rings of list) encRings(o, rings); return o; };
+const SP=[spans.length]; for (const b of spans){ SP.push(dm(b.c[0]), dm(b.c[1]), Math.round(b.u[0]*1e4), Math.round(b.u[1]*1e4), dm(b.pa), dm(b.pb), dm(b.wa), dm(b.wb), dm(b.clear), dm(b.thick), b.piers.length, ...b.piers.map(dm)); encRings(SP, [b.r]); }
 const TR=[]; for (const t of trees) TR.push(dm(t[0]), dm(t[1]), dm(t[2]), dm(t[3]));
-const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), roads:encList(roads), grass:encList(grass), parks:encList(parks), bridges:encList(bridges), trees:TR };
+const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), roads:encList(roads), grass:encList(grass), parks:encList(parks), spans:SP, trees:TR };
 const json = JSON.stringify(city);
 fs.writeFileSync(OUT, json);
 console.log('wrote', OUT, (json.length/1e6).toFixed(2)+' MB', 'gzip', (zlib.gzipSync(json).length/1e6).toFixed(2)+' MB', 'bounds', BOUNDS);
 
 /* ------------------------------------------------------------ optional preview + course check */
-export { HR, RW, RH, RX0, RZ0, llW, BOUNDS, water, bridges, previewImage, writePNG };
+export { HR, RW, RH, RX0, RZ0, llW, BOUNDS, water, spans, previewImage, writePNG };
 if (process.argv.includes('--preview')){ const { W, H, img } = previewImage(2); writePNG(path.join(HERE,'raw','preview.png'), W, H, img); console.log('preview', W, H); }
 function previewImage(S, crop){
   crop = crop || [0,0,RW,RH];
@@ -268,7 +338,7 @@ function previewImage(S, crop){
   }
   for (const t of trees){ const x=Math.floor((t[0]-RX0-crop[0])/S), y=Math.floor((t[1]-RZ0-crop[1])/S); if (x>=0&&y>=0&&x<W&&y<H){ const o=(y*W+x)*3; img[o]=60; img[o+1]=140; img[o+2]=60; } }
   const put=(i,c)=>{ const x=Math.floor((i%RW-crop[0])/S), y=Math.floor((Math.floor(i/RW)-crop[1])/S); if (x<0||y<0||x>=W||y>=H) return; const o=(y*W+x)*3; img[o]=c[0]; img[o+1]=c[1]; img[o+2]=c[2]; };
-  for (const b of bridges) fillPoly(b, i=>put(i,[230,120,40]));
+  if (!process.env.NOSPAN) for (const b of spans) fillPoly([b.r], i=>put(i,[230,120,40]));
   for (const l of lms) fillPoly([l.r], i=>put(i,[220,30,30]));
   return { W, H, img };
 }
