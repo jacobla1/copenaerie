@@ -253,7 +253,7 @@ const PHOTO = `uniform sampler2D uOv; uniform vec4 uOvB; uniform sampler2D uTex;
   // The final pass tone-maps with ACES (exposure 1.1), which lifts mid-tones and would bleach a photo. Undo that curve
   // so that radiance x lit at 1.0 lands on screen as the photo's own colour.
   vec3 invAces(vec3 y){
-    y = clamp(y, 0.0, 0.985);
+    y = clamp(y, 0.0, 0.8);  // near-white would invert to huge values and bloom; cap at a bright but plain white
     vec3 a = 2.43*y - 2.51, b = 0.59*y - 0.03, c = 0.14*y;
     return (-b - sqrt(max(b*b - 4.0*a*c, 0.0))) / (2.0*a) / 1.1;
   }
@@ -319,7 +319,8 @@ const depthMat = new THREE.ShaderMaterial({ vertexShader:`void main(){ gl_Positi
 /* ---------------------------------------------------------------- materials */
 // Buildings, landmarks, quays and bridges share one shader; aInfo.x picks the surface kind.
 //   1 classic facade, 2 modern facade, 3 glass, 4 plain/shed, 10 tiled roof, 11 flat roof, 12 metal roof,
-//   13 landmark masonry, 14 landmark copper, 15 granite quay, 16 bridge, 17 roof or deck draped with the aerial photo
+//   13 landmark masonry, 14 landmark copper, 15 granite quay, 16 bridge, 17 roof or deck draped with the aerial photo,
+//   18 street lamp glow
 const cityVS = `attribute vec4 aWin; attribute vec4 aInfo; attribute vec3 aCol;
   varying vec3 vW; varying vec3 vN; varying vec3 vCol; varying vec4 vWin; varying vec4 vInfo;
   void main(){ vec4 wp=modelMatrix*vec4(position,1.0); vW=wp.xyz; vN=normal; vCol=aCol; vWin=aWin; vInfo=aInfo; gl_Position=projectionMatrix*viewMatrix*wp; }`;
@@ -336,7 +337,9 @@ const cityMat = new THREE.ShaderMaterial({
       float win = 0.0, glassy = 0.0, lit = 0.0, rough = 0.0;
       // taken outside any branch so the derivatives behind them stay defined
       vec3 pho = photo(vW.xz), fn = normalize(cross(dFdx(vW), dFdy(vW)));
-      if (kind > 16.5){
+      if (kind > 17.5){
+        alb = vec3(1.0);
+      } else if (kind > 16.5){
         // smoothed normals, tipped toward the flat face so ridges still read
         n = normalize(n + (fn.y < 0.0 ? -fn : fn)*0.35);
         alb = pho;
@@ -350,6 +353,9 @@ const cityMat = new THREE.ShaderMaterial({
         float hw = kind > 2.5 ? 0.47 : (kind > 1.5 ? 0.38 : 0.21);
         float y0 = fl < 0.5 ? 0.08 : 0.30, y1 = fl < 0.5 ? 0.86 : 0.82;
         if (kind > 2.5 && kind < 3.5){ y0 = 0.04; y1 = 0.96; }
+        // older blocks of four or more storeys: shopfronts on the ground floor
+        bool shop = kind < 1.5 && floors > 3.5 && fl < 0.5;
+        if (shop){ hw = 0.36; y0 = 0.06; y1 = 0.9; }
         float inX = smoothstep(0.5-hw-wx, 0.5-hw+wx, fx) * (1.0 - smoothstep(0.5+hw-wx, 0.5+hw+wx, fx));
         float inY = smoothstep(y0-wy, y0+wy, fy) * (1.0 - smoothstep(y1-wy, y1+wy, fy));
         float ok = step(fl, floors-0.5) * step(1.4, L) * step(0.3, h);
@@ -358,9 +364,29 @@ const cityMat = new THREE.ShaderMaterial({
         float farAway = smoothstep(0.22, 0.55, max(wx, wy));
         win = mix(inX*inY, cover*0.85, farAway) * ok;
         lit = step(0.9, hash12(vec2(ci*1.7+seed*413.0, fl*3.1+seed*57.0))) * (1.0-farAway*0.6);
-        if (fl < 0.5) lit = max(lit, step(0.6, hash12(vec2(ci+seed*29.0, 7.0)))*0.6);
-        // plaster, brick and concrete get a little mottling; cornice band under the eaves
+        if (fl < 0.5) lit = max(lit, step(0.6, hash12(vec2(ci+seed*29.0, 7.0)))*(shop ? 0.85 : 0.6));
+        // plaster, brick and concrete get a little mottling
         alb *= 0.9 + 0.2*vnoise(vW.xz*0.35 + vW.y*0.5) ;
+        if (kind < 2.5){
+          float nearF = 1.0 - farAway;
+          // painted frames and glazing bars: white on old facades, dark grey on modern ones
+          float fw = 0.07/cs, fv = 0.07/fh;
+          float inXi = smoothstep(0.5-hw+fw-wx, 0.5-hw+fw+wx, fx) * (1.0 - smoothstep(0.5+hw-fw-wx, 0.5+hw-fw+wx, fx));
+          float inYi = smoothstep(y0+fv-wy, y0+fv+wy, fy) * (1.0 - smoothstep(y1-fv-wy, y1-fv+wy, fy));
+          float bars = kind < 1.5 && !shop ? max(1.0 - smoothstep(0.0, 0.035/cs + wx, abs(fx-0.5)), 1.0 - smoothstep(0.0, 0.035/fh + wy, abs(fy - (y0 + (y1-y0)*0.68)))) : 0.0;
+          float frame = clamp(inX*inY - inXi*inYi*(1.0 - bars), 0.0, 1.0) * ok * nearF;
+          vec3 fc = kind < 1.5 ? vec3(0.78, 0.77, 0.74) : vec3(0.09, 0.09, 0.1);
+          win *= 1.0 - frame; lit *= 1.0 - frame;
+          // plinth of dark stone; on old facades a string course over the ground floor and a cornice under the eaves
+          float plinth = 1.0 - smoothstep(0.62, 0.62 + fwidth(h)*1.5, h);
+          float course = kind < 1.5 && floors > 2.5 ? (smoothstep(fh-0.32, fh-0.3, h) - smoothstep(fh-0.08, fh-0.06, h)) : 0.0;
+          float eave = floors*fh;
+          float cornice = kind < 1.5 && floors > 1.5 ? smoothstep(eave-0.75, eave-0.7, h) * (1.0 - smoothstep(eave+0.15, eave+0.2, h)) : 0.0;
+          float under = kind < 1.5 && floors > 1.5 ? smoothstep(eave-0.95, eave-0.9, h) * (1.0 - smoothstep(eave-0.75, eave-0.7, h)) : 0.0;
+          alb = mix(alb, fc, frame);
+          alb = mix(alb, vec3(0.08, 0.075, 0.07), plinth*0.85);
+          alb *= 1.0 + 0.28*(course + cornice)*nearF - 0.35*under*nearF;
+        }
         glassy = kind > 2.5 && kind < 3.5 ? 1.0 : 0.0;
       } else if (kind < 10.5){
         alb *= 0.82 + 0.18*step(0.42, fract(vW.y*3.4)) ;
@@ -386,7 +412,8 @@ const cityMat = new THREE.ShaderMaterial({
       amb += vec3(0.14,0.09,0.05)*max(-n.y,0.0) + vec3(0.06,0.05,0.04)*(1.0-abs(n.y));
       vec3 col = alb*(uSunCol*ndl*sh + amb*ao);
       // the photo already holds the midday light, so our evening sun only shades it
-      if (kind > 16.5) col = alb*(vec3(0.66,0.66,0.72) + vec3(1.0,0.82,0.62)*(0.36*ndl*sh/max(uSunDir.y+0.35,0.5)));
+      if (kind > 17.5) col = vec3(5.0, 3.4, 1.7);
+      else if (kind > 16.5) col = alb*(vec3(0.66,0.66,0.72) + vec3(1.0,0.82,0.62)*(0.36*ndl*sh/max(uSunDir.y+0.35,0.5)));
       // glass: sky reflection over a dark interior, some rooms already lit
       vec3 R = reflect(-V, n);
       float fr = 0.04 + 0.96*pow(1.0-max(dot(n,V),0.0), 5.0);
@@ -987,6 +1014,9 @@ async function generate(){
     rasterFill([r], j=>{ if (tdm>H2[j]) H2[j]=tdm; });
   }
 
+  buildSpires();
+  buildLamps();
+
   setLoad('Quays and bridges', 0.64); await tick();
   const granite=[118,112,104];
   for (const rings of waterRings){
@@ -1014,7 +1044,11 @@ async function generate(){
     const [tx,tz]=k.split(',').map(Number);
     const m=new THREE.Mesh(g, cityMatFor(tx,tz)); scene.add(m);
     shadowScene.add(new THREE.Mesh(g, cityDepth));
+    // once on the GPU the vertex data isn't needed in JavaScript (bounds are already computed)
+    for (const name in g.attributes) g.attributes[name].onUpload(function(){ this.array = null; });
+    g.index.onUpload(function(){ this.array = null; });
   }
+  tiles.clear(); // drop the growable build buffers
 
   setLoad('Painting the streets', 0.7); await tick();
   paintGround(waterRings);
@@ -1079,6 +1113,86 @@ function buildDeck(b){
     const rr = ringArea(ring)<0 ? new Float32Array([ring[6],ring[7],ring[4],ring[5],ring[2],ring[3],ring[0],ring[1]]) : ring;
     walls(T, rr, -0.4, y1, side, 16, seed, 3, 0);
     rasterFill([rr], i=>{ H2[i]=Math.max(H2[i], Math.round(y1*10)); DB[i]=0; DT[i]=0; });
+  }
+}
+
+// Two spires no dataset captures. Vor Frelsers Kirke (1752): a tarred spire with a gilded staircase winding four
+// times round the outside up to the golden globe. Børsen (1625): four dragons' tails twisted into one copper spire.
+// Axes are the laser scan's highest points; heights from the buildings' published dimensions.
+function buildSpires(){
+  const tar=[44,40,36], gold=hex3(0xc9a043), copper=hex3(0x6f9f8c);
+  { // Vor Frelsers Kirke
+    const X=688.8, Z=781.4, y0=GROUND+46, y1=GROUND+84, r0=5.0, r1=0.3, T=tileFor(X,Z), seed=0.37;
+    const rad = y => r0 + (r1-r0)*clamp((y-y0)/(y1-y0),0,1);
+    const ring = (y, r, a) => [X+Math.cos(a)*r, y, Z+Math.sin(a)*r];
+    for (let k=0;k<8;k++){ const a0=k/8*Math.PI*2, a1=(k+1)/8*Math.PI*2, am=(a0+a1)/2;
+      quad(T, [ring(y0,r0,a0), ring(y0,r0,a1), ring(y1,r1,a1), ring(y1,r1,a0)], [Math.cos(am),0.2,Math.sin(am)], tar, 13, seed); }
+    // the staircase: a ribbon from 0.15 to 1.0 m off the spire, four turns anticlockwise, with a gilded rail
+    const N=260, turns=4, ya=y0+1, yb=y1-3;
+    for (let k=0;k<N;k++){
+      const t0=k/N, t1=(k+1)/N, a0=-t0*turns*Math.PI*2, a1=-t1*turns*Math.PI*2, h0=ya+(yb-ya)*t0, h1=ya+(yb-ya)*t1;
+      const i0=rad(h0)+0.15, i1=rad(h1)+0.15, o0=rad(h0)+1.0, o1=rad(h1)+1.0;
+      quad(T, [ring(h0,i0,a0), ring(h0,o0,a0), ring(h1,o1,a1), ring(h1,i1,a1)], [0,1,0], gold, 14, seed);
+      quad(T, [ring(h0-0.3,i0,a0), ring(h0-0.3,o0,a0), ring(h1-0.3,o1,a1), ring(h1-0.3,i1,a1)], [0,-1,0], gold, 14, seed);
+      const am=(a0+a1)/2;
+      quad(T, [ring(h0-0.3,o0,a0), ring(h1-0.3,o1,a1), ring(h1+0.9,o1,a1), ring(h0+0.9,o0,a0)], [Math.cos(am),0,Math.sin(am)], gold, 14, seed);
+      quad(T, [ring(h0-0.3,o0,a0), ring(h1-0.3,o1,a1), ring(h1+0.9,o1,a1), ring(h0+0.9,o0,a0)], [-Math.cos(am),0,-Math.sin(am)], gold, 14, seed);
+    }
+    // gilded globe and the figure's staff
+    const gy=y1+1.3, gr=1.25;
+    for (let j=0;j<6;j++) for (let k=0;k<10;k++){
+      const b0=-Math.PI/2+j/6*Math.PI, b1=-Math.PI/2+(j+1)/6*Math.PI, a0=k/10*Math.PI*2, a1=(k+1)/10*Math.PI*2;
+      const P=(b,a)=>[X+Math.cos(b)*Math.cos(a)*gr, gy+Math.sin(b)*gr, Z+Math.cos(b)*Math.sin(a)*gr];
+      const bm=(b0+b1)/2, am=(a0+a1)/2;
+      quad(T, [P(b0,a0),P(b0,a1),P(b1,a1),P(b1,a0)], [Math.cos(bm)*Math.cos(am), Math.sin(bm), Math.cos(bm)*Math.sin(am)], gold, 14, seed);
+    }
+    walls(T, new Float32Array([X-0.12,Z-0.12, X+0.12,Z-0.12, X+0.12,Z+0.12, X-0.12,Z+0.12]), gy+gr, GROUND+90, gold, 14, seed, 3, 0);
+    const hi=Math.round((GROUND+84)*10); rasterFill([new Float32Array([X-3,Z-3, X+3,Z-3, X+3,Z+3, X-3,Z+3])], i=>{ if (hi>H2[i]) H2[i]=hi; });
+  }
+  { // Børsen
+    const X=44.0, Z=518.0, yb=GROUND+21, ys=GROUND+25, yt=GROUND+56, T=tileFor(X,Z), seed=0.71;
+    walls(T, new Float32Array([X-2,Z-2, X+2,Z-2, X+2,Z+2, X-2,Z+2]), yb, ys, copper, 14, seed, 3, 0);
+    const N=70, turns=2.5;
+    for (let j=0;j<4;j++){
+      const pt=(t,side,up)=>{ // side: -1/1 across the strand, up: -1/1 radially
+        const R=1.5*Math.pow(1-t,1.3), a=j*Math.PI/2 + t*turns*Math.PI*2, w=0.6*(1-t)+0.05, y=ys+(yt-ys)*t;
+        const cx=X+Math.cos(a)*R, cz=Z+Math.sin(a)*R, rx=Math.cos(a), rz=Math.sin(a), tx=-rz, tz=rx;
+        return [cx+rx*w*up+tx*w*side, y, cz+rz*w*up+tz*w*side];
+      };
+      for (let k=0;k<N;k++){
+        const t0=k/N, t1=(k+1)/N, a=j*Math.PI/2 + (t0+t1)/2*turns*Math.PI*2, rx=Math.cos(a), rz=Math.sin(a);
+        quad(T, [pt(t0,-1,1),pt(t0,1,1),pt(t1,1,1),pt(t1,-1,1)], [rx,0,rz], copper, 14, seed);
+        quad(T, [pt(t0,-1,-1),pt(t0,1,-1),pt(t1,1,-1),pt(t1,-1,-1)], [-rx,0,-rz], copper, 14, seed);
+        quad(T, [pt(t0,1,-1),pt(t0,1,1),pt(t1,1,1),pt(t1,1,-1)], [-rz,0,rx], copper, 14, seed);
+        quad(T, [pt(t0,-1,-1),pt(t0,-1,1),pt(t1,-1,1),pt(t1,-1,-1)], [rz,0,-rx], copper, 14, seed);
+      }
+    }
+    const hi=Math.round((GROUND+50)*10); rasterFill([new Float32Array([X-2,Z-2, X+2,Z-2, X+2,Z+2, X-2,Z+2])], i=>{ if (hi>H2[i]) H2[i]=hi; });
+  }
+}
+
+// Street lamps slung on wires between facing buildings (positions from tools/build.mjs). No collision: a glider
+// threading a street at lamp height would be grazing the walls anyway.
+function buildLamps(){
+  const L=city.lamps; if (!L) return;
+  const dark=[34,34,36], wire=[24,24,26];
+  for (let i=1;i<L.length;i+=7){
+    const x=L[i]/10, z=L[i+1]/10, y=GROUND+L[i+2]/10, ax=L[i+3]/10, az=L[i+4]/10, bx=L[i+5]/10, bz=L[i+6]/10;
+    const T=tileFor(x,z), s=0.45, g=0.3;
+    // shade, then the glowing bowl under it
+    walls(T, new Float32Array([x-s,z-s, x+s,z-s, x+s,z+s, x-s,z+s]), y+0.12, y+0.3, dark, 16, 0, 3, 0);
+    cap(T, [new Float32Array([x-s,z-s, x+s,z-s, x+s,z+s, x-s,z+s])], y+0.3, dark, 16, 0);
+    walls(T, new Float32Array([x-g,z-g, x+g,z-g, x+g,z+g, x-g,z+g]), y-0.05, y+0.12, dark, 18, 0, 3, 0);
+    quad(T, [[x-g,y-0.05,z-g],[x+g,y-0.05,z-g],[x+g,y-0.05,z+g],[x-g,y-0.05,z+g]], [0,-1,0], dark, 18, 0);
+    // wires, sagging slightly to the lamp
+    for (const [wx,wz] of [[ax,az],[bx,bz]]){
+      const top=y+0.9, mid=[(wx+x)/2, y+0.55, (wz+z)/2];
+      for (const [p0,p1] of [[[wx,top,wz], mid], [mid, [x,y+0.3,z]]]){
+        const dx=p1[0]-p0[0], dz=p1[2]-p0[2], l=Math.hypot(dx,dz)||1, nx=-dz/l, nz=dx/l;
+        quad(T, [[p0[0],p0[1]-0.02,p0[2]],[p1[0],p1[1]-0.02,p1[2]],[p1[0],p1[1]+0.02,p1[2]],[p0[0],p0[1]+0.02,p0[2]]], [nx,0,nz], wire, 16, 0);
+        quad(T, [[p0[0],p0[1]-0.02,p0[2]],[p1[0],p1[1]-0.02,p1[2]],[p1[0],p1[1]+0.02,p1[2]],[p0[0],p0[1]+0.02,p0[2]]], [-nx,0,-nz], wire, 16, 0);
+      }
+    }
   }
 }
 

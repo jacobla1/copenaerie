@@ -35,7 +35,7 @@ Append `#debug` to the URL to expose `window.__step(seconds)`, `window.__dbg.loo
 
 Each roof is meshed from the laser heights inside its footprint (`tools/roofs.mjs`): the eave line is sampled just inside every wall, then interior points are added wherever the surface misses the scan by more than 0.8 m, and the lot is joined by a constrained Delaunay triangulation. That gives about 670,000 roof triangles for 10,950 buildings. The other ~800 buildings, mostly newer than the scan, keep a generated roof. The aerial photo is draped over roofs and ground. It was flown near midday, so its hard shadows are lifted in preprocessing, and its haze is countered in the shader with extra contrast and saturation.
 
-Facades are still generated from the BBR wall material and construction year, since an aerial photo can't see them. Nyhavn's ships are placed procedurally along the measured canal.
+Facade colours come from Klimadatastyrelsen's 2025 oblique aerial photos (`tools/fetch_oblique.py`, `tools/facades_dk.py`). Every wall is projected into the north, east, south and west photos that face it, views blocked in the laser surface model are dropped, and the median colour of the clearest view is kept. About 54 % of wall segments get a real colour, and the rest (mostly courtyards) fall back to a palette chosen from BBR material and year. Windows, white frames with glazing bars, shopfronts, plinths and cornices are drawn in the shader. Vor Frelsers Kirke's gilded spiral spire and Børsen's dragon-tail spire are modelled by hand, and about 1,600 street lamps hang on wires between facing buildings along OpenStreetMap's streets. Nyhavn's ships are placed procedurally along the measured canal.
 
 The municipal water layer stops at each bridge face, so the build puts the water back under every OpenStreetMap bridge outline and raises the deck in a hump from street level to its clearance. Harbour spans over 55 m get about 5.4 m of clearance and piers roughly every 40 m. The canal bridges really clear only about 2.2–2.5 m, which a glider can't thread when the quays sit 2 m above the water, so in the game they get 3.4 m. Bridges aren't in any open dataset with heights, so these are approximations.
 
@@ -51,6 +51,9 @@ python3 tools/fetch_dk.py       # aerial photo and height-model tiles into tools
 python3 tools/mosaic_dk.py      # stitches the heights above terrain into one grid
 python3 tools/ortho_dk.py       # writes data/ortho/: 90 photo tiles (about 36 MB) and an overview
 (cd tools && npm install)       # cdt2d, for the roof triangulation
+python3 tools/fetch_oblique.py  # 522 oblique photos at 1/8 size into tools/raw/dk/sk/ (about 1 GB)
+node tools/build.mjs            # first pass writes tools/raw/walls.json
+python3 tools/facades_dk.py     # facade colours into tools/raw/facades.json
 node tools/build.mjs            # writes data/city.json (1.6 MB) and data/roofs.bin.gz (4.1 MB)
 node tools/course.mjs           # checks the race course against the roofs and draws tools/raw/course*.png
 ```
@@ -61,7 +64,7 @@ The course control points live in `tools/course-points.mjs`. They are mirrored i
 
 ## Attribution
 
-- Contains data from Klimadatastyrelsen: GeoDanmark ortofoto forår 2025 and Danmarks Højdemodel (DHM/Overflade and DHM/Terræn).
+- Contains data from Klimadatastyrelsen: GeoDanmark ortofoto forår 2025, skråfoto 2025 and Danmarks Højdemodel (DHM/Overflade and DHM/Terræn).
 - Contains data from Københavns Kommune (kbhkort) and GeoDanmark, including BBR building data.
-- Landmark and bridge geometry © OpenStreetMap contributors, available under the Open Database License (ODbL).
+- Landmark, bridge and street geometry © OpenStreetMap contributors, available under the Open Database License (ODbL).
 - Three.js r149 is loaded from jsDelivr.

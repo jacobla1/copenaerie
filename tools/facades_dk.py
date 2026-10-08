@@ -148,7 +148,8 @@ def main():
         if m.sum() < 50: continue
         sm = np.median(lab[m], 0)
         lab[m, 0] = np.clip(lab[m, 0] * (gm[0] / max(sm[0], 1)) ** 0.85, 0, 255)
-        lab[m, 1:] += (gm[1:] - sm[1:]) * 0.3   # mostly the blue cast of shade; each wall keeps its own hue
+        lab[m, 1] += (gm[1] - sm[1]) * 0.3       # each wall keeps its own hue...
+        lab[m, 2] += (gm[2] - sm[2]) * 0.8       # ...but shade's blue sky cast is taken out
     out_rgb = cv2.cvtColor(np.clip(lab, 0, 255)[None].astype(np.uint8), cv2.COLOR_LAB2RGB)[0]
     # aerial haze leaves the photos pale: restore contrast and saturation, as the game does for the vertical photo
     lin = (out_rgb.astype(np.float32) / 255) ** (2.2 * 1.25)

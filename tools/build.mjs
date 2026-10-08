@@ -205,6 +205,13 @@ for (const e of load('osm_parts').elements){
   if (rc<0 && t['roof:material']==='copper') rc=0x7fae9c;
   lms.push({ r, base, eave, top, shape, wc, rc });
 }
+// Vor Frelsers Kirke's spire is modelled by hand in index.html (its gold outside staircase); drop the OSM boxes
+// stacked up its axis, keeping the tower they stand on. The axis is the laser scan's highest point there.
+const HAND_SPIRES = [{ x:688.8, z:781.4, r:9, above:47 }];
+for (let i=lms.length-1; i>=0; i--){
+  const l=lms[i], [cx,cz]=centroid(l.r);
+  if (HAND_SPIRES.some(h=>Math.hypot(cx-h.x, cz-h.z)<h.r && l.top>h.above)) lms.splice(i,1);
+}
 lms.sort((a,b)=>a.top-b.top);
 for (const l of lms) fillPoly([l.r], i=>{ const v=l.shape?l.eave+(l.top-l.eave)*0.5:l.top; if (v>HR[i]) HR[i]=v; });
 console.log('landmark parts', lms.length);
@@ -335,6 +342,34 @@ for (const e of osmB){
 console.log('bridges', spans.length, spans.filter(s=>s.name).map(s=>s.name+' '+(s.wb-s.wa).toFixed(0)+'m').join(', '));
 for (const b of spans) fillPoly([b.r], i=>{ const v=b.clear+b.thick; if (v>HR[i]) HR[i]=v; });
 
+/* ------------------------------------------------------------ street lamps hung on wires */
+// Copenhagen's streets are lit by lamps slung on wires between facing buildings. Along each OSM street, every 32 m,
+// look left and right through the height raster for the building walls; where both stand within reach, hang a lamp
+// over the middle at about 7 m with its wire to each wall.
+const lamps=[];
+if (fs.existsSync(path.join(RAW, 'osm_streets.json'))){
+  const wallAt=(x,z,dx,dz)=>{ for (let d=1.5; d<=15; d+=0.5){ const h=hrAt(x+dx*d, z+dz*d); if (h>5) return [d, h]; } return null; };
+  for (const e of load('osm_streets').elements){
+    const t=e.tags||{}; if (t.bridge || t.tunnel || !e.geometry) continue;
+    const pts=e.geometry.map(g=>llW(g.lon,g.lat));
+    let carry=12;
+    for (let i=0;i+1<pts.length;i++){
+      const a=pts[i], b=pts[i+1], L=Math.hypot(b[0]-a[0], b[1]-a[1]); if (L<0.5) continue;
+      const ux=(b[0]-a[0])/L, uz=(b[1]-a[1])/L, px=-uz, pz=ux;
+      for (let d=carry; d<L; d+=32){
+        const x=a[0]+ux*d, z=a[1]+uz*d; if (!inB(x,z,-50) || hrAt(x,z)>1) continue;
+        const l=wallAt(x,z,px,pz), r=wallAt(x,z,-px,-pz); if (!l || !r || l[0]+r[0]<6 || l[0]+r[0]>26) continue;
+        const ax=x+px*(l[0]-0.3), az=z+pz*(l[0]-0.3), bx=x-px*(r[0]-0.3), bz=z-pz*(r[0]-0.3);
+        const cx=(ax+bx)/2, cz=(az+bz)/2, y=Math.max(5.5, Math.min(7.5, 0.7*Math.min(l[1], r[1])));
+        if (lamps.some(q=>Math.hypot(q[0]-cx, q[1]-cz)<14)) continue;
+        lamps.push([cx, cz, y, ax, az, bx, bz]);
+      }
+      carry = ((carry - L) % 32 + 32) % 32;
+    }
+  }
+}
+console.log('street lamps', lamps.length);
+
 const trees=[];
 for (const f of load('automatisk_detekterede_traeer_kk_beta').features){
   const [x,z]=toW(f.geometry.coordinates[0], f.geometry.coordinates[1]); const P=f.properties;
@@ -351,8 +386,9 @@ const B=[]; for (const b of blds){ B.push(dm(b.h), dm(b.rise), dm(b.d), b.wall, 
 const L=[]; for (const l of lms){ L.push(dm(l.base), dm(l.eave), dm(l.top), l.shape, l.wc, l.rc); encRings(L, [l.r]); }
 const encList = list => { const o=[list.length]; for (const rings of list) encRings(o, rings); return o; };
 const SP=[spans.length]; for (const b of spans){ SP.push(dm(b.c[0]), dm(b.c[1]), Math.round(b.u[0]*1e4), Math.round(b.u[1]*1e4), dm(b.pa), dm(b.pb), dm(b.wa), dm(b.wb), dm(b.clear), dm(b.thick), b.piers.length, ...b.piers.map(dm)); encRings(SP, [b.r]); }
+const LP=[lamps.length]; for (const l of lamps) LP.push(...l.map(dm));
 const TR=[]; for (const t of trees) TR.push(dm(t[0]), dm(t[1]), dm(t[2]), dm(t[3]));
-const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), spans:SP, trees:TR };
+const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), spans:SP, lamps:LP, trees:TR };
 const json = JSON.stringify(city);
 fs.writeFileSync(OUT, json);
 

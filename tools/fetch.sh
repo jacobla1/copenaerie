@@ -29,4 +29,6 @@ echo "overpass: colour tags"
 curl -sS -m 180 -A "$UA" --data-urlencode "data=[out:json][timeout:120];(way[\"building\"][\"building:colour\"]($OSM_BBOX);way[\"building\"][\"roof:colour\"]($OSM_BBOX);way[\"building\"][\"roof:material\"]($OSM_BBOX););out tags center;" https://overpass-api.de/api/interpreter -o osm_colours.json
 echo "overpass: bridges"
 curl -sS -m 180 -A "$UA" --data-urlencode "data=[out:json][timeout:120];(way[\"bridge\"][\"bridge\"!=\"no\"]($OSM_BBOX);way[\"man_made\"=\"bridge\"]($OSM_BBOX);relation[\"man_made\"=\"bridge\"]($OSM_BBOX););out body geom;" https://overpass-api.de/api/interpreter -o osm_bridges.json
+echo "overpass: streets (for the lamps hung over them)"
+curl -sS -m 180 -A "$UA" --data-urlencode "data=[out:json][timeout:120];way[\"highway\"~\"^(primary|secondary|tertiary|residential|unclassified|living_street|pedestrian)$\"]($OSM_BBOX);out tags geom;" https://overpass-api.de/api/interpreter -o osm_streets.json
 echo done
