@@ -117,6 +117,8 @@ export function roofFor(G, rings, skip){
         s.push([f * L, at(a[0] + (b[0] - a[0]) * fi + nx * INSET, a[1] + (b[1] - a[1]) * fi + nz * INSET), x, z]);
       }
       const keep = dpIdx(s, opts.tol);
+      // keep a point at least every 8 m, so a long facade can change colour from house to house
+      for (let k = 1, last = 0; k < s.length; k++){ if (keep[k]) last = k; else if (s[k][0] - s[last][0] >= 8){ keep[k] = 1; last = k; } }
       for (let k = 0; k < s.length - 1; k++) if (keep[k]) idx.push([s[k][2], s[k][3], s[k][1]]);
     }
     if (idx.length < 3) continue;

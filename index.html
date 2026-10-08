@@ -613,10 +613,11 @@ function insetRing(r, d){
   return out;
 }
 // Vertical walls along a ring from y0 to y1, normals pointing out of a positive-area ring.
-function walls(T, r, y0, y1, c, kind, seed, fh, floors){
+function walls(T, r, y0, y1, c0, kind, seed, fh, floors, FC, fo){
   const n=r.length/2;
   for (let i=0;i<n;i++){
     const j=(i+1)%n, ax=r[i*2], az=r[i*2+1], bx=r[j*2], bz=r[j*2+1];
+    const fv = FC ? FC[fo+i] : 0, c = fv ? facadeRGB(fv, [0,0,0]) : c0;
     const dx=bx-ax, dz=bz-az, L=Math.hypot(dx,dz); if (L<0.05) continue;
     const nx=dz/L, nz=-dx/L, h0=y0-GROUND, h1=y1-GROUND;
     const a=T.vert(ax,y0,az, nx,0,nz, c, 0,h0,fh,L, kind,seed,floors);
@@ -735,6 +736,29 @@ async function loadRoofs(){
     return { a:new Int16Array(buf), u:new Uint16Array(buf), i:2 };
   } catch(e){ return null; }
 }
+// Real facade colours from the 2025 oblique photos (tools/facades_dk.py): per building, one RGB565 per wall segment.
+async function loadFacades(){
+  try {
+    const r=await fetch('data/facades.bin.gz'); if (!r.ok) return null;
+    let buf=await r.arrayBuffer(); const h=new Uint8Array(buf, 0, 2);
+    if (h[0]===0x1f && h[1]===0x8b){
+      if (typeof DecompressionStream==='undefined') return null;
+      buf=await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+    }
+    return { u:new Uint16Array(buf), i:2 };
+  } catch(e){ return null; }
+}
+function nextFacade(FD){
+  if (!FD) return null;
+  const n=FD.u[FD.i++]; if (!n) return null;
+  const c=FD.u.subarray(FD.i, FD.i+n); FD.i+=n; return c;
+}
+// RGB565 to an sRGB triple (already graded against haze in tools/facades_dk.py)
+function facadeRGB(v, out){
+  out[0]=Math.round(((v>>11)&31)*255/31); out[1]=Math.round(((v>>5)&63)*255/63); out[2]=Math.round((v&31)*255/31);
+  return out;
+}
+
 function nextRoof(RF){
   if (!RF) return null;
   const u=RF.u; let k=RF.i; const np=u[k++];
@@ -746,8 +770,8 @@ function nextRoof(RF){
 }
 // Walls under a laser roof: every outline point carries its own eave height. Window columns run along each
 // straight stretch of wall, so u and L are measured along runs of nearly collinear outline segments.
-function wallsTop(T, P, s, n, c, kind, seed, fh, floors){
-  const X=k=>P[(s+k%n)*3]/10, Z=k=>P[(s+k%n)*3+1]/10, Hh=k=>P[(s+k%n)*3+2]/10;
+function wallsTop(T, P, s, n, c, kind, seed, fh, floors, FC, fo){
+  const X=k=>P[(s+k%n)*3]/10, Z=k=>P[(s+k%n)*3+1]/10, Hh=k=>P[(s+k%n)*3+2]/10, c0=c;
   const ang=k=>Math.atan2(Z(k+1)-Z(k), X(k+1)-X(k));
   const brk=k=>{ let d=Math.abs(ang(k)-ang(k+n-1)); if (d>Math.PI) d=2*Math.PI-d; return d>0.06; };
   let st=0; while (st<n && !brk(st)) st++; if (st===n) st=0;
@@ -759,6 +783,7 @@ function wallsTop(T, P, s, n, c, kind, seed, fh, floors){
       const a=k0+j, ax=X(a), az=Z(a), bx=X(a+1), bz=Z(a+1), L=Math.hypot(bx-ax,bz-az);
       if (L>0.05){
         const nx=(bz-az)/L, nz=-(bx-ax)/L, ha=Hh(a), hb=Hh(a+1);
+        const fv = FC ? FC[fo + a%n] : 0; if (fv) c = facadeRGB(fv, [0,0,0]); else c = c0;
         const v0=T.vert(ax,GROUND,az, nx,0,nz, c, u,0,fh,len, kind,seed,floors), v1=T.vert(bx,GROUND,bz, nx,0,nz, c, u+L,0,fh,len, kind,seed,floors);
         const v2=T.vert(bx,GROUND+hb,bz, nx,0,nz, c, u+L,hb,fh,len, kind,seed,floors), v3=T.vert(ax,GROUND+ha,az, nx,0,nz, c, u,ha,fh,len, kind,seed,floors);
         T.tri(v0,v2,v1); T.tri(v0,v3,v2);
@@ -858,13 +883,13 @@ function deckWidth(b, s){
 
 async function generate(){
   setLoad('Fetching the city', 0.05);
-  const roofsP = loadRoofs();
+  const roofsP = loadRoofs(), facadesP = loadFacades();
   const res = await fetch('data/city.json');
   if (!res.ok) throw new Error('city data '+res.status);
   city = await res.json();
   bounds = city.bounds;
   setLoad('Fetching aerial photos and roofs', 0.1);
-  const [RF] = await Promise.all([roofsP, loadOverview()]);
+  const [RF, FD] = await Promise.all([roofsP, facadesP, loadOverview()]);
   HW = Math.ceil((bounds[2]-bounds[0])/HCELL); HH = Math.ceil((bounds[3]-bounds[1])/HCELL);
   H2 = new Uint16Array(HW*HH).fill(GROUND*10);
   const waterRings = decodeList(city.water), spans = decodeSpans(city.spans);
@@ -907,9 +932,9 @@ async function generate(){
     if (rise>0) roofKind = (roof===4 || roof===9 || (roof===10 && rc[1]>rc[0])) ? 12 : 10;
     const floors = floorsRaw>0 ? floorsRaw : Math.max(1, Math.floor(h/3.1));
     const fh = clamp(h/floors, 2.5, 4.6);
-    const R = nextRoof(RF);
+    const R = nextRoof(RF), FC = nextFacade(FD);
     if (R){
-      let s=0; for (const n of R.counts){ wallsTop(T, R.p, s, n, wc, kind, seed, fh, Math.min(floors,40)); s+=n; }
+      let s=0; for (const n of R.counts){ wallsTop(T, R.p, s, n, wc, kind, seed, fh, Math.min(floors,40), FC && FC.length>=s+n ? FC : null, s); s+=n; }
       roofMesh(T, R, seed);
       const P=R.p; let lo=Infinity; for (let k=0;k<s;k++) lo=Math.min(lo, P[k*3+2]);
       const lod=Math.round(lo+GROUND*10); rasterFill(rings, j=>{ if (lod>H2[j]) H2[j]=lod; });
@@ -919,7 +944,7 @@ async function generate(){
       continue;
     }
     if (!boat){ roofKind = 17; }
-    for (let k=0;k<rings.length;k++) walls(T, rings[k], base, top, wc, kind, seed, fh, Math.min(floors,40));
+    for (let k=0, fo=0;k<rings.length;k++){ const n=rings[k].length/2; walls(T, rings[k], base, top, wc, kind, seed, fh, Math.min(floors,40), FC && FC.length>=fo+n ? FC : null, fo); fo+=n; }
     if (rise>0){
       const q=insetRing(outer, d), n=outer.length/2, y1=top+rise;
       for (let e=0;e<n;e++){ const f=(e+1)%n; slope(T, outer[e*2],outer[e*2+1], outer[f*2],outer[f*2+1], q[f*2],q[f*2+1], q[e*2],q[e*2+1], top, y1, rc, roofKind, seed); }

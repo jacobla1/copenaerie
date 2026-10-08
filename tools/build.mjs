@@ -11,6 +11,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RAW = path.join(HERE, 'raw');
 const OUT = path.join(HERE, '..', 'data', 'city.json');
 const ROOFS_OUT = path.join(HERE, '..', 'data', 'roofs.bin.gz');
+const FACADES_OUT = path.join(HERE, '..', 'data', 'facades.bin.gz');
 const load = n => JSON.parse(fs.readFileSync(path.join(RAW, n + '.json'), 'utf8'));
 
 /* ------------------------------------------------------------ projection */
@@ -354,6 +355,36 @@ const TR=[]; for (const t of trees) TR.push(dm(t[0]), dm(t[1]), dm(t[2]), dm(t[3
 const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), spans:SP, trees:TR };
 const json = JSON.stringify(city);
 fs.writeFileSync(OUT, json);
+
+// Walls for tools/facades_dk.py: per building, each ring as [x, z, top] points in the order the game draws them
+// (laser outline points, or the footprint at gutter height). Segment k runs from point k to point k+1.
+const wallRings = blds.map((b, i) => {
+  if (b.boat) return null;
+  const r = roofs && roofs[i];
+  if (r) return r.rings.map(([s0, e]) => r.pts.slice(s0, e).map(p => [+p[0].toFixed(2), +p[1].toFixed(2), +p[2].toFixed(2)]));
+  return b.rings.map(ring => ring.map(p => [+p[0].toFixed(2), +p[1].toFixed(2), +b.h.toFixed(2)]));
+});
+fs.writeFileSync(path.join(RAW, 'walls.json'), JSON.stringify(wallRings));
+// Real facade colours from the oblique photos, when facades_dk.py has run: data/facades.bin.gz is one uint16
+// stream in city.B order. Per building: the segment count (0 = none), then one RGB565 colour per segment,
+// 0 where no photo saw that wall.
+const FC = path.join(RAW, 'facades.json');
+if (fs.existsSync(FC)){
+  const cols = JSON.parse(fs.readFileSync(FC, 'utf8'));
+  if (cols.length !== wallRings.length) console.log('facades.json is stale (', cols.length, 'vs', wallRings.length, 'buildings): rerun tools/facades_dk.py');
+  else {
+    const F = [wallRings.length & 0xffff, wallRings.length >> 16]; let n = 0, seen = 0;
+    wallRings.forEach((w, i) => {
+      const c = cols[i];
+      if (!w || !c){ F.push(0); return; }
+      const segs = c.flat(); F.push(segs.length);
+      for (const rgb of segs){ n++; if (!rgb){ F.push(0); continue; } seen++; F.push(Math.max(1, ((rgb[0] >> 3) << 11) | ((rgb[1] >> 2) << 5) | (rgb[2] >> 3))); }
+    });
+    const buf = zlib.gzipSync(Buffer.from(Uint16Array.from(F).buffer), { level: 9 });
+    fs.writeFileSync(FACADES_OUT, buf);
+    console.log('wrote', FACADES_OUT, seen, 'of', n, 'wall segments coloured,', (buf.length/1e3).toFixed(0)+' KB');
+  }
+}
 if (roofs){
   // data/roofs.bin.gz: one int16 stream, buildings in city.B order.
   // per building: npts (0 = procedural roof); then nrings, the boundary point count of each ring, ntris,
