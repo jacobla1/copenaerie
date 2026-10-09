@@ -52,7 +52,7 @@ Roofs carry about 17,000 chimneys, found where the raw laser scan stands well ab
 - **The Opera:** its roof slab runs out over an open plaza, above the curved glass front of the foyer.
 - **Knippelsbro:** its two control towers.
 - **Amalienborg:** Frederik V on horseback.
-- **Børsen:** shown as it stood before the fire of April 2024, since the 2025 laser scan and photos show only its restoration tent. It has its rows of gables, its stepped end gables and the dragon spire.
+- **Børsen:** shown as it stood before the fire of April 2024, since the 2025 laser scan and photos show only its restoration tent. It is fitted to the 2019 oblique photos instead: eight steep copper wings across the roof on each side, each fronted by an ornamented brick gable, a larger gable in the middle of each side, small dormers between, tiered end gables, and the dragon spire over its open lantern.
 
 At street level, kerbs follow GeoDanmark's kerb lines, with the road side worked out from the nearest street centreline. About 21,000 cars are parked along ordinary streets and in OpenStreetMap's parking areas, and about 10,600 bicycles stand at its bicycle parking. Squares, pedestrian areas and the quays are cobbled close up. The quays have granite coping and iron bollards, and Nyhavn has café tables under market umbrellas. This street detail is drawn only within about 600 m of the camera. Harbour buses run down the inner harbour, cyclists cross the longer bridges, and gulls circle over the water. Press N, or the Dusk button, for the same lap at night: lit windows, floodlit landmarks, pools of lamplight and stars.
 

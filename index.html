@@ -1905,70 +1905,106 @@ function buildLandmarks(){
     solid(x,z,3,G0+9);
   }
 }
-// Børsen as it stood before the fire of April 2024: red brick and sandstone under a steep copper roof, a row of
-// ornamented gables along each side, a stepped gable at each end, and the spire of four dragons' tails twisted together
-// above an open copper lantern, carrying three crowns.
-function buildBorsen([cx, cz, ang, len, wid, eave]){
+// Børsen as it stood before the fire of April 2024, fitted to Klimadatastyrelsen's 2019 oblique photos: two storeys
+// of red brick and sandstone (eaves 10.5 m, ridge 20.5 m), a copper roof crossed by eight steep gabled wings a side,
+// each fronted by an ornamented brick gable, a larger gable in the middle of each long side, small copper dormers between,
+// tiered gables at the ends, and the spire of four dragons' tails twisted together above an open lantern, with three crowns.
+function buildBorsen([cx, cz, ang, len, wid]){
   const T=tileFor(cx,cz), G0=GROUND, ca=Math.cos(ang), sa=Math.sin(ang), hl=len/2, hw=wid/2;
-  const brick=[146,60,46], sand=[208,196,170], cu=[98,150,130], cuD=[84,128,110];
+  const brick=[116,60,50], sand=[188,176,152], cu=[100,128,116], cuD=[82,108,96], glass=[30,30,32];
   const P=(u,v,y)=>[cx+u*ca-v*sa, y, cz+u*sa+v*ca], XZ=(u,v)=>{ const p=P(u,v,0); return [p[0],p[2]]; };
   let rr=new Float32Array([...XZ(-hl,-hw),...XZ(hl,-hw),...XZ(hl,hw),...XZ(-hl,hw)]); if (ringArea(rr)<0) rr=new Float32Array([...XZ(-hl,hw),...XZ(hl,hw),...XZ(hl,-hw),...XZ(-hl,-hw)]);
-  const ye=G0+eave, rise=hw*1.0, yr=ye+rise;
-  walls(T, rr, G0, ye, brick, 1, 0.23, eave/2, 2);
-  // the roof, overhanging the long walls a little
-  const o=0.4;
-  quad(T, [P(-hl,-hw-o,ye-o),P(hl,-hw-o,ye-o),P(hl,0,yr),P(-hl,0,yr)], [sa*0.7,0.7,-ca*0.7], cu, 14, 0);
-  quad(T, [P(-hl,hw+o,ye-o),P(hl,hw+o,ye-o),P(hl,0,yr),P(-hl,0,yr)], [-sa*0.7,0.7,ca*0.7], cu, 14, 0);
-  // stepped end gables, with sandstone copings and a figure on top
+  const ye=G0+10.5, yr=G0+20.5, rise=yr-ye, roofY=v=>yr-rise*Math.abs(v)/hw;
+  const nS=s=>[-sa*s,0,ca*s], nE=s=>[ca*s,0,sa*s];
+  walls(T, rr, G0, ye, brick, 1, 0.23, 5.25, 2);
+  // sandstone plinth, string course and cornice
+  const band=(y0,y1,o)=>{ for (const s of [-1,1]){
+    quad(T, [P(-hl-o,s*(hw+o),y0),P(hl+o,s*(hw+o),y0),P(hl+o,s*(hw+o),y1),P(-hl-o,s*(hw+o),y1)], nS(s), sand, 13, 0);
+    quad(T, [P(s*(hl+o),-hw-o,y0),P(s*(hl+o),hw+o,y0),P(s*(hl+o),hw+o,y1),P(s*(hl+o),-hw-o,y1)], nE(s), sand, 13, 0); } };
+  band(G0, G0+0.8, 0.12); band(G0+5.1, G0+5.45, 0.08); band(ye-0.45, ye, 0.14);
+  // the main roof
+  const o=0.35;
+  for (const s of [-1,1]) quad(T, [P(-hl,s*(hw+o),ye-o*rise/hw),P(hl,s*(hw+o),ye-o*rise/hw),P(hl,0,yr),P(-hl,0,yr)], [-sa*s,1,ca*s], cu, 14, 0);
+  // an ornamented gable: outline given as its right half [across, up], mirrored; drawn in the plane at (u,v) facing n
+  const gable=(right, map, nrm, c)=>facePoly(T, right.concat(right.map(([a,y])=>[-a,y]).reverse().slice(1)), map, nrm, c, 13);
+  const finial=(x, z, y, h)=>{ box(T, x, z, ang, 0.13, 0.13, y, y+h*0.75, sand, 13); lathe(T, x, z, [[0.13,y+h*0.75],[0.02,y+h]], 4, sand, 13, ang+Math.PI/4); };
+  // a gabled wing across the roof: copper roof from the facade back to the main roof, fronted by a brick gable
+  const wing=(u, s, b, gh, front, wins)=>{
+    const v=s*hw, vin=s*hw*(yr-gh)/rise, vf=v+s*0.25;
+    quad(T, [P(u-b,vf,ye),P(u,vf,gh),P(u,vin,gh),P(u-b,v,ye)], [-ca,1,-sa], cu, 14, 0);
+    quad(T, [P(u+b,vf,ye),P(u,vf,gh),P(u,vin,gh),P(u+b,v,ye)], [ca,1,sa], cu, 14, 0);
+    const map=(a,y)=>P(u+a, v+s*0.3, ye+y), map2=(a,y)=>P(u+a, v+s*0.36, ye+y);
+    facePoly(T, [[-b,0],[b,0],[0,gh-ye]], (a,y)=>P(u+a, vf, ye+y), nS(s), cuD, 14);   // copper-clad above the brick
+    gable(front, map, nS(s), brick);
+    // sandstone bands across each step of the outline, and finials on the steps and the top
+    for (let k=1;k<front.length-1;k++){
+      const [a0,y0]=front[k], [a1,y1]=front[k+1];
+      if (Math.abs(a0-a1)>0.3 && Math.abs(y1-y0)<0.5){ const w=Math.max(a0,a1); quad(T, [map2(-w,y0-0.25),map2(w,y0-0.25),map2(w,y0),map2(-w,y0)], nS(s), sand, 13, 0); }
+      if (Math.abs(a0-a1)<0.05 && y1>y0 && k>1){ for (const sg of [-1,1]){ const p=map2(sg*a0, 0); finial(p[0], p[2], ye+y1, 0.9); } }
+    }
+    const top=front[front.length-1], tp=map2(0,0); finial(tp[0], tp[2], ye+top[1], 1.3);
+    for (const [a,y,w,h] of wins){ const p=P(u+a, v+s*0.3, 0); opening(T, p[0], ye+y, p[2], -sa*s, ca*s, w, h, true, sand, glass); }
+  };
+  const side=[[3.4,0],[3.4,1.5],[2.9,2.0],[2.4,2.2],[2.4,3.6],[2.0,3.9],[1.3,4.1],[1.3,5.2],[0.7,5.6],[0,6.2]];
+  const mid=[[5.3,0],[5.3,2.0],[4.7,2.5],[3.7,2.7],[3.7,4.8],[3.1,5.2],[2.3,5.4],[2.3,7.2],[1.6,7.5],[1.1,7.7],[1.1,8.6],[0,9.3]];
   for (const s of [-1,1]){
-    const u=s*hl, nrm=[ca*s,0,sa*s], steps=4, right=[], tops=[];
-    let y=ye;
-    for (let k=0;k<steps;k++){ const v=hw*(1-k/steps); right.push([v,y]); y = k===steps-1 ? yr+2.6 : ye+rise*(k+1)/steps+0.9; right.push([v,y]); tops.push([v,y]); }
-    facePoly(T, right.concat(right.map(([v,y])=>[-v,y]).reverse()), (v,yy)=>P(u+s*0.02,v,yy), nrm, brick, 13);
-    for (const [v,yt] of tops) quad(T, [P(u+s*0.08,-v+0.05,yt-0.35),P(u+s*0.08,v-0.05,yt-0.35),P(u+s*0.08,v-0.05,yt),P(u+s*0.08,-v+0.05,yt)], nrm, sand, 13, 0);
-    quad(T, [P(u+s*0.08,-hw,ye-0.2),P(u+s*0.08,hw,ye-0.2),P(u+s*0.08,hw,ye+0.25),P(u+s*0.08,-hw,ye+0.25)], nrm, sand, 13, 0);
-    for (const v of [-hw*0.55, 0, hw*0.55]){ const wp=P(u,v,0); opening(T, wp[0], ye+1.2+(v===0 ? 2.5 : 0), wp[2], ca*s, sa*s, 1.2, 2.4, true, sand, [30,28,28]); }
-    const [fxp,fzp]=XZ(u,0); box(T, fxp, fzp, ang, 0.3, 0.3, yr+2.6, yr+4.2, cuD, 14); ball(T, fxp, yr+4.5, fzp, 0.3, cuD, 14, 6);
+    for (const u of [-54.5,-41.7,-29,-16.2,16.2,29,41.7,54.5]) wing(u, s, 4.4, ye+7.5, side, [[0,0.4,1.2,1.6],[0,2.6,0.75,1.0]]);
+    wing(0, s, 5.6, ye+9.6, mid, [[-2.0,0.5,1.2,1.7],[2.0,0.5,1.2,1.7],[0,2.9,1.1,1.6],[0,5.6,0.7,1.0]]);
+    // small copper dormers between the gables, and a chimney by each
+    for (const u of [-59.8,-48.1,-35.4,-22.6,-8.1,8.1,22.6,35.4,48.1,59.8]){
+      const vf=s*(hw-1.6), y0=roofY(vf), dh=1.5, vb=vf-s*dh*hw/rise;
+      facePoly(T, [[-0.7,0],[0.7,0],[0,dh]], (a,y)=>P(u+a, vf, y0+y), nS(s), cuD, 14);
+      quad(T, [P(u-0.75,vf+s*0.1,y0-0.05),P(u,vf+s*0.1,y0+dh+0.05),P(u,vb,y0+dh+0.05),P(u,vb,y0+dh+0.05)], [-ca,1,-sa], cu, 14, 0);
+      quad(T, [P(u+0.75,vf+s*0.1,y0-0.05),P(u,vf+s*0.1,y0+dh+0.05),P(u,vb,y0+dh+0.05),P(u,vb,y0+dh+0.05)], [ca,1,sa], cu, 14, 0);
+      const wp=P(u, vf, 0); opening(T, wp[0], y0+0.15, wp[2], -sa*s, ca*s, 0.6, 0.8, true, null, glass);
+      if (s<0 && Math.abs(u)>9){ const cp=XZ(u+2, -2.2); box(T, cp[0], cp[1], ang, 0.45, 0.3, roofY(2.2)-1, yr+0.4, brick, 13); }
+    }
   }
-  // the side gables: tall, narrow and stepped, each with a little copper roof running back into the main roof
-  const NG=10, gw=1.8, gh=6.4, gp=[[-gw,0],[gw,0],[gw,2.6],[gw*0.62,3.2],[gw*0.62,4.4],[gw*0.3,5.0],[gw*0.3,gh-0.6],[0,gh],[-gw*0.3,gh-0.6],[-gw*0.3,5.0],[-gw*0.62,4.4],[-gw*0.62,3.2],[-gw,2.6]];
-  for (const s of [-1,1]) for (let i=0;i<NG;i++){
-    const u=-hl+(i+0.5)*len/NG, v=s*hw, nrm=[-sa*s,0,ca*s];
-    facePoly(T, gp, (a,y)=>P(u+a, v+s*0.03, ye+y), nrm, brick, 13);
-    quad(T, [P(u-gw,v+s*0.08,ye+2.5),P(u+gw,v+s*0.08,ye+2.5),P(u+gw,v+s*0.08,ye+2.8),P(u-gw,v+s*0.08,ye+2.8)], nrm, sand, 13, 0);
-    const wp=P(u,v,0); opening(T, wp[0], ye+0.5, wp[2], -sa*s, ca*s, 1.1, 1.8, true, sand, [30,28,28]);
-    const fp=P(u,v+s*0.05,0); box(T, fp[0], fp[2], ang, 0.12, 0.12, ye+gh, ye+gh+1.2, sand, 13);
-    const d=2.6, y2=ye+2.6, y3=ye+3.6, vi=v-s*3.6;
-    quad(T, [P(u-gw,v,y2),P(u,v,y3),P(u,vi,y3),P(u-gw,v-s*d,y2)], [0,1,0], cu, 14, 0);
-    quad(T, [P(u+gw,v,y2),P(u,v,y3),P(u,vi,y3),P(u+gw,v-s*d,y2)], [0,1,0], cu, 14, 0);
-    for (const e of [-gw,gw]) quad(T, [P(u+e,v,ye),P(u+e,v,y2),P(u+e,v-s*d,y2),P(u+e,v-s*d,y2)], [ca*Math.sign(e),0,sa*Math.sign(e)], cuD, 14, 0);
+  // the tiered end gables, standing clear of the roof behind them
+  const end=[[hw,0],[hw,2.6],[hw-0.5,3.1],[8.0,3.3],[8.0,5.6],[7.4,6.0],[5.6,6.2],[5.6,8.4],[5.0,8.8],[3.2,9.0],[3.2,11.0],[2.6,11.4],[1.4,11.6],[1.4,12.6],[0,13.2]];
+  for (const s of [-1,1]){
+    const u=s*hl, map=(v,y)=>P(u+s*0.05, v, ye+y), map2=(v,y)=>P(u+s*0.12, v, ye+y);
+    facePoly(T, end.concat(end.map(([a,y])=>[-a,y]).reverse().slice(1)), map, nE(s), brick, 13);
+    for (let k=1;k<end.length-1;k++){
+      const [a0,y0]=end[k], [a1,y1]=end[k+1];
+      if (Math.abs(a0-a1)>0.3 && Math.abs(y1-y0)<0.5){ const w=Math.max(a0,a1); quad(T, [map2(-w,y0-0.3),map2(w,y0-0.3),map2(w,y0),map2(-w,y0)], nE(s), sand, 13, 0); }
+      if (Math.abs(a0-a1)<0.05 && y1>y0 && k>1) for (const sg of [-1,1]){ const p=map2(sg*a0,0); finial(p[0], p[2], ye+y1, 1.1); }
+    }
+    { const p=map2(0,0); finial(p[0], p[2], ye+13.2, 1.6); }
+    for (const [v,y,w,h] of [[-5.5,0.6,1.2,1.8],[-2,0.6,1.2,1.8],[2,0.6,1.2,1.8],[5.5,0.6,1.2,1.8],[-3.6,3.9,1.0,1.5],[0,3.9,1.0,1.5],[3.6,3.9,1.0,1.5],[-1.6,6.6,0.9,1.4],[1.6,6.6,0.9,1.4],[0,9.4,0.8,1.2]]){
+      const p=P(u+s*0.05, v, 0); opening(T, p[0], ye+y, p[2], ca*s, sa*s, w, h, true, sand, glass);
+    }
+    const dp=P(u, 0, 0); opening(T, dp[0], G0+0.8, dp[2], ca*s, sa*s, 2.0, 3.4, true, sand, [40,30,24]);
   }
-  // the dragon spire on the ridge
-  const [X,Z]=XZ(0,0), yb=yr-0.6, yl=yr+5.2, ys=yl+0.9, yt=G0+54;
-  box(T, X, Z, ang, 2.6, 2.6, yb, yr+0.8, cuD, 14);
-  cyl(T, X, Z, 2.0, yr+0.8, yl, 8, [34,40,38], 19, ang+Math.PI/8);
-  for (let k=0;k<8;k++){ const a=ang+Math.PI/8+k/8*Math.PI*2; box(T, X+Math.cos(a)*2.35, Z+Math.sin(a)*2.35, a, 0.2, 0.2, yr+0.8, yl, cu, 14); }
-  cyl(T, X, Z, 2.7, yl, ys, 8, cu, 14, ang+Math.PI/8); cap(T, [ringN(X,Z,2.7,8,ang+Math.PI/8)], ys, cu, 14, 0);
-  const tail=[120,130,124], N=70, turns=2.5;
+  // the spire: a square copper base where the middle wings meet, an open lantern, a bell, then the dragons
+  const [X,Z]=XZ(0,0), r8=ang+Math.PI/8, grey=[150,160,152];
+  box(T, X, Z, ang, 3.0, 3.0, yr-3, yr+1.4, cu, 14);
+  box(T, X, Z, ang, 3.25, 3.25, yr+1.4, yr+1.9, cuD, 14);
+  cyl(T, X, Z, 2.0, yr+1.9, yr+4.6, 8, [30,34,32], 19, r8);
+  for (let k=0;k<8;k++){ const a=r8+k/8*Math.PI*2; box(T, X+Math.cos(a)*2.5, Z+Math.sin(a)*2.5, a, 0.22, 0.22, yr+1.9, yr+4.6, grey, 14); }
+  cyl(T, X, Z, 2.9, yr+4.6, yr+5.1, 8, cuD, 14, r8);
+  lathe(T, X, Z, [[2.9,yr+5.1],[2.6,yr+6.0],[1.9,yr+7.0],[1.3,yr+7.8]], 8, grey, 14, r8);
+  const ys=yr+7.6, yt=G0+52.5, N=70, turns=2.5;
   for (let j=0;j<4;j++){
-    const pt=(t,side,up)=>{ // side: -1/1 across the strand, up: -1/1 radially
-      const R=1.6*Math.pow(1-t,1.3), a=ang+j*Math.PI/2 + t*turns*Math.PI*2, w=0.65*(1-t)+0.05, y=ys+(yt-ys)*t;
+    const pt=(t,sd,up)=>{
+      const R=1.3*Math.pow(1-t,1.2), a=ang+Math.PI/4+j*Math.PI/2 + t*turns*Math.PI*2, w=0.55*(1-t)+0.05, y=ys+(yt-ys)*t;
       const px=X+Math.cos(a)*R, pz=Z+Math.sin(a)*R, rx=Math.cos(a), rz=Math.sin(a), tx=-rz, tz=rx;
-      return [px+rx*w*up+tx*w*side, y, pz+rz*w*up+tz*w*side];
+      return [px+rx*w*up+tx*w*sd, y, pz+rz*w*up+tz*w*sd];
     };
     for (let k=0;k<N;k++){
-      const t0=k/N, t1=(k+1)/N, a=ang+j*Math.PI/2 + (t0+t1)/2*turns*Math.PI*2, rx=Math.cos(a), rz=Math.sin(a);
-      quad(T, [pt(t0,-1,1),pt(t0,1,1),pt(t1,1,1),pt(t1,-1,1)], [rx,0,rz], tail, 14, 0);
-      quad(T, [pt(t0,-1,-1),pt(t0,1,-1),pt(t1,1,-1),pt(t1,-1,-1)], [-rx,0,-rz], tail, 14, 0);
-      quad(T, [pt(t0,1,-1),pt(t0,1,1),pt(t1,1,1),pt(t1,1,-1)], [-rz,0,rx], tail, 14, 0);
-      quad(T, [pt(t0,-1,-1),pt(t0,-1,1),pt(t1,-1,1),pt(t1,-1,-1)], [rz,0,-rx], tail, 14, 0);
+      const t0=k/N, t1=(k+1)/N, a=ang+Math.PI/4+j*Math.PI/2 + (t0+t1)/2*turns*Math.PI*2, rx=Math.cos(a), rz=Math.sin(a);
+      quad(T, [pt(t0,-1,1),pt(t0,1,1),pt(t1,1,1),pt(t1,-1,1)], [rx,0,rz], grey, 14, 0);
+      quad(T, [pt(t0,-1,-1),pt(t0,1,-1),pt(t1,1,-1),pt(t1,-1,-1)], [-rx,0,-rz], grey, 14, 0);
+      quad(T, [pt(t0,1,-1),pt(t0,1,1),pt(t1,1,1),pt(t1,1,-1)], [-rz,0,rx], grey, 14, 0);
+      quad(T, [pt(t0,-1,-1),pt(t0,-1,1),pt(t1,-1,1),pt(t1,-1,-1)], [rz,0,-rx], grey, 14, 0);
     }
-    const a=ang+j*Math.PI/2; box(T, X+Math.cos(a)*2.6, Z+Math.sin(a)*2.6, a, 0.9, 0.3, ys-0.2, ys+0.5, tail, 14);   // the heads
+    // the heads, reaching out over the corners of the lantern
+    const a=ang+Math.PI/4+j*Math.PI/2; box(T, X+Math.cos(a)*2.7, Z+Math.sin(a)*2.7, a, 1.0, 0.32, yr+5.6, yr+6.4, grey, 14);
   }
-  for (const [y,r] of [[G0+45.5,0.62],[G0+48.6,0.5],[G0+51.2,0.4]]) crown(T, X, Z, r, y, [214,176,80]);
-  lathe(T, X, Z, [[0.12,G0+53.6],[0.03,G0+56.5]], 6, [214,176,80], 14);
+  for (const [y,r] of [[G0+44,0.6],[G0+47.4,0.48],[G0+50.2,0.38]]) crown(T, X, Z, r, y, [214,176,80]);
+  lathe(T, X, Z, [[0.12,G0+52.2],[0.03,G0+56]], 6, [214,176,80], 14);
   rasterFill([rr], j=>{ const v=Math.round((ye+rise*0.6)*10); if (v>H2[j]) H2[j]=v; });
-  rasterFill([ringN(X,Z,2.8,8)], j=>{ const v=Math.round((G0+50)*10); if (v>H2[j]) H2[j]=v; });
+  rasterFill([ringN(X,Z,3,8)], j=>{ const v=Math.round((G0+48)*10); if (v>H2[j]) H2[j]=v; });
 }
 
 // Street lamps slung on wires between facing buildings (positions from tools/build.mjs). No collision: a glider
