@@ -549,7 +549,38 @@ if (fs.existsSync(path.join(RAW, 'osm_areas.json'))){
     }
   }
 }
-console.log('kerb lines', kerbs.length, 'masts', masts.length, 'parked cars', cars.length, 'bikes', bikes.length, 'paved areas', paved.length);
+// Nyhavn's café tables: in front of the old houses on the sunny north quay (and a few on the south quay), umbrellas
+// over tables in the band between the facades and the walkway along the canal. The canal axis is the one
+// index.html's boats use; the quay edges and facades are found in the rasters.
+const cafes=[];
+{
+  const A=[226,-87], ux=0.9117, uz=0.411, nx=-uz, nz=ux;
+  for (let t=70; t<392; t+=4.6){
+    for (const side of [-1, 1]){
+      if (side>0 && (t<120 || t>260)) continue;   // the south side has only a few
+      const edge = side<0 ? -3-(t-60)*0.0347 : 24.5-(t-60)*0.0361;
+      let o=edge, fac=null; for (let k=0;k<30;k+=0.5){ o=edge+side*k; const x=A[0]+ux*t+nx*o, z=A[1]+uz*t+nz*o; if (hrAt(x,z)>3){ fac=k; break; } }
+      if (fac===null || fac<7 || fac>22) continue;
+      if (hash(t*0.37+side)<0.18) continue;          // a gap between restaurants
+      const d=edge+side*(fac-3.4), x=A[0]+ux*t+nx*d, z=A[1]+uz*t+nz*d;
+      if (!freeAt(x,z)) continue;
+      cafes.push([x, z, Math.atan2(uz, ux), Math.floor(hash(Math.floor(t/14)*3.1+side)*4)]);
+    }
+  }
+}
+// The harbour bus route: rough points down the inner harbour, each pulled to the middle of the channel near it
+// (the point within 70 m farthest from any quay), so the boats keep clear of the edges.
+const ferry=[];
+{
+  const shore=(x,z)=>{ let d=90; for (let k=0;k<24;k++){ const a=k/24*Math.PI*2, dx=Math.cos(a), dz=Math.sin(a); for (let r=2;r<d;r+=2) if (!watAt(x+dx*r, z+dz*r)){ d=r; break; } } return d; };
+  for (const [x0,z0] of [[-100,980],[60,780],[200,600],[380,420],[540,240],[690,60],[740,-200],[780,-580]]){
+    let best=[x0,z0], bd=-1;
+    for (let dz=-70; dz<=70; dz+=5) for (let dx=-70; dx<=70; dx+=5){ const x=x0+dx, z=z0+dz; if (!watAt(x,z) || Math.hypot(dx,dz)>70) continue; const d=shore(x,z)-Math.hypot(dx,dz)*0.15; if (d>bd){ bd=d; best=[x,z]; } }
+    ferry.push(best);
+  }
+  console.log('harbour bus route', ferry.map(p=>p.join(',')).join('  '));
+}
+console.log('cafes', cafes.length, 'kerb lines', kerbs.length, 'masts', masts.length, 'parked cars', cars.length, 'bikes', bikes.length, 'paved areas', paved.length);
 
 const trees=[];
 for (const f of load('automatisk_detekterede_traeer_kk_beta').features){
@@ -574,7 +605,9 @@ const CH=[]; if (roofs) for (const r of roofs) if (r) for (const c of r.chims) C
 console.log('chimneys', CH.length/7);
 const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), spans:SP, lamps:LP, trees:TR, chim:CH, hand,
   kerb:encList(kerbs.map(l=>[l])), mast:masts.flat().map(dm), paved:encList(paved),
-  cars:cars.flatMap(c=>[dm(c[0]), dm(c[1]), Math.round(c[2]*1000)]), bikes:bikes.flatMap(c=>[dm(c[0]), dm(c[1]), Math.round(c[2]*1000)]) };
+  cars:cars.flatMap(c=>[dm(c[0]), dm(c[1]), Math.round(c[2]*1000)]), bikes:bikes.flatMap(c=>[dm(c[0]), dm(c[1]), Math.round(c[2]*1000)]),
+  ferry:ferry.flat().map(dm),
+  cafes:cafes.flatMap(c=>[dm(c[0]), dm(c[1]), Math.round(c[2]*1000), c[3]]) };
 const json = JSON.stringify(city);
 fs.writeFileSync(OUT, json);
 

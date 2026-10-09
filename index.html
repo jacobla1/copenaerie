@@ -342,7 +342,8 @@ const cityMat = new THREE.ShaderMaterial({
       float rev = 0.0, frame = 0.0, recSh = 1.0;
       vec3 revN = n, gN = n, fcol = vec3(0.0), inAlb = vec3(0.0), inEm = vec3(0.0);
       // taken outside any branch so the derivatives behind them stay defined
-      vec3 pho = photo(vW.xz), fn = normalize(cross(dFdx(vW), dFdy(vW)));
+      // the epsilon keeps a sub-pixel triangle's face normal from normalising zero to NaN, which the bloom would spread into a black square
+      vec3 pho = photo(vW.xz), fn = normalize(cross(dFdx(vW), dFdy(vW)) + vec3(0.0, 1e-7, 0.0));
       float fwH = fwidth(h), fwU = fwidth(vWin.x);
       if (kind > 18.5){
         alb *= 0.9 + 0.2*vnoise(vec2(vW.x + vW.z, vW.y)*3.0);
@@ -1048,7 +1049,7 @@ async function generate(){
   const [RF, FD] = await Promise.all([roofsP, facadesP, loadOverview()]);
   HW = Math.ceil((bounds[2]-bounds[0])/HCELL); HH = Math.ceil((bounds[3]-bounds[1])/HCELL);
   H2 = new Uint16Array(HW*HH).fill(GROUND*10);
-  const waterRings = decodeList(city.water), spans = decodeSpans(city.spans);
+  const waterRings = decodeList(city.water), spans = decodeSpans(city.spans); SPANS = spans;
   for (const w of waterRings) rasterFill(w, i=>{ H2[i]=0; });
   DB = new Uint16Array(HW*HH); DT = new Uint16Array(HW*HH);
   for (const b of spans) rasterFill([b.r], i=>{
@@ -1217,6 +1218,7 @@ async function generate(){
   setLoad('Planting '+(city.trees.length/4).toLocaleString('en')+' trees', 0.8); await tick();
   buildTrees();
 
+  buildMovers();
   setLoad('Gathering cloud', 0.88); await tick();
   buildSky();
 
@@ -1399,6 +1401,20 @@ function buildStreets(){
     quad2([Pt(0.42,0.34), Pt(0.47,0.34), Pt(0.5,1.0), Pt(0.45,1.0)], frame);         // fork and stem
     box(T, x+ca*0.48, z+sa*0.48, a+Math.PI/2, 0.3, 0.02, GROUND+0.98, GROUND+1.02, tyre);  // handlebar
   }
+  // Nyhavn's café tables under square market umbrellas (placed in tools/build.mjs)
+  const F=city.cafes||[], canv=[[232,226,210],[244,242,236],[150,40,36],[44,74,58]].map(c=>c);
+  for (let i=0;i<F.length;i+=4){
+    const x=F[i]/10, z=F[i+1]/10, a=F[i+2]/1000, col=canv[F[i+3]%4], T=nearTileFor(x,z), wood=[112,82,56];
+    const ca=Math.cos(a), sa=Math.sin(a), Pt=(u,v,y)=>[x+u*ca-v*sa, GROUND+y, z+u*sa+v*ca];
+    box(T, x, z, a, 0.45, 0.45, GROUND+0.7, GROUND+0.76, wood);                   // table
+    box(T, x, z, a, 0.04, 0.04, GROUND, GROUND+0.7, [40,40,42]);
+    for (const v of [-0.85, 0.85]){ const bx=x-sa*v, bz=z+ca*v; box(T, bx, bz, a, 0.9, 0.17, GROUND+0.42, GROUND+0.47, wood); box(T, bx, bz, a, 0.85, 0.04, GROUND, GROUND+0.42, [50,50,52]); }
+    box(T, x, z, a, 0.03, 0.03, GROUND+0.76, GROUND+2.75, [210,210,206]);          // pole
+    const h=1.75, r=1.75, top=Pt(0,0,2.95), C=[Pt(-r,-r,2.35),Pt(r,-r,2.35),Pt(r,r,2.35),Pt(-r,r,2.35)];
+    for (let k=0;k<4;k++){ const p0=C[k], p1=C[(k+1)%4], mx=(p0[0]+p1[0])/2-x, mz=(p0[2]+p1[2])/2-z, l=Math.hypot(mx,mz);
+      quad(T, [p0,p1,top,top], [mx/l,0.9,mz/l], col, 19, 0); quad(T, [p1,p0,top,top], [-mx/l,-0.9,-mz/l], shade(col,0.8), 19, 0);
+      quad(T, [[p0[0],p0[1]-0.22,p0[2]],[p1[0],p1[1]-0.22,p1[2]],p1,p0], [mx/l,0,mz/l], shade(col,0.92), 19, 0); }
+  }
   const M=city.mast||[];
   for (let i=0;i<M.length;i+=2){
     const x=M[i]/10, z=M[i+1]/10, T=nearTileFor(x,z), r=hash(x*0.53+z*0.91);
@@ -1430,6 +1446,141 @@ function buildChimneys(){
     cap(T, [r], y1, [30,28,27], 19, 0);
     const hi=Math.round(y1*10); rasterFill([r], j=>{ if (hi>H2[j]) H2[j]=hi; });
   }
+}
+
+/* ---------------------------------------------------------------- moving things */
+// Harbour buses on their route down the inner harbour, cyclists on the bridges, gulls over the water. Their meshes
+// are built once around the origin with the city helpers and moved every frame; they share the city shader with a
+// vertex stage that turns normals with the object and, for gulls, flaps the wings.
+let SPANS = [], movers = null;
+const moverVS = (gull) => `attribute vec4 aWin; attribute vec4 aInfo; attribute vec3 aCol; ${gull ? 'attribute float aWing;' : ''} uniform float uTime;
+  varying vec3 vW; varying vec3 vN; varying vec3 vCol; varying vec4 vWin; varying vec4 vInfo;
+  void main(){
+    mat4 m = modelMatrix;
+    #ifdef USE_INSTANCING
+      m = modelMatrix * instanceMatrix;
+    #endif
+    vec3 p = position;
+    ${gull ? 'float ph = fract(sin(dot(m[3].xz, vec2(12.9898, 78.233)))*43758.5453)*6.2832; p.y += aWing*0.42*sin(uTime*7.0 + ph);' : ''}
+    vec4 wp = m*vec4(p, 1.0); vW = wp.xyz; vN = normalize(mat3(m)*normal); vCol = aCol; vWin = aWin; vInfo = aInfo;
+    gl_Position = projectionMatrix*viewMatrix*wp;
+  }`;
+function moverMat(gull){
+  return new THREE.ShaderMaterial({ uniforms:Object.assign({}, U, photoTile(0,0).u), vertexShader:moverVS(gull), fragmentShader:cityMat.fragmentShader, extensions:{ derivatives:true }, side:gull ? THREE.DoubleSide : THREE.FrontSide });
+}
+// a Tile's geometry, built in local coordinates (GROUND is subtracted again so helpers that add it stay usable)
+function localMesh(build, extra){
+  const T=new Tile(); build(T); const g=T.mesh();
+  g.translate(0, 0, 0); if (extra) extra(g, T);
+  return g;
+}
+function catmull(pts, step){
+  const out=[];
+  for (let i=0;i+1<pts.length;i++){
+    const p0=pts[Math.max(0,i-1)], p1=pts[i], p2=pts[i+1], p3=pts[Math.min(pts.length-1,i+2)];
+    const n=Math.max(2, Math.ceil(Math.hypot(p2[0]-p1[0], p2[1]-p1[1])/step));
+    for (let k=0;k<n;k++){ const t=k/n, t2=t*t, t3=t2*t;
+      const f=(a,b,c,d)=>0.5*((2*b)+(-a+c)*t+(2*a-5*b+4*c-d)*t2+(-a+3*b-3*c+d)*t3);
+      out.push([f(p0[0],p1[0],p2[0],p3[0]), f(p0[1],p1[1],p2[1],p3[1])]); }
+  }
+  out.push(pts[pts.length-1]);
+  const acc=[0]; for (let i=1;i<out.length;i++) acc.push(acc[i-1]+Math.hypot(out[i][0]-out[i-1][0], out[i][1]-out[i-1][1]));
+  return { p:out, acc, len:acc[acc.length-1] };
+}
+function alongPath(P, s, out){
+  s=clamp(s, 0, P.len); let lo=0, hi=P.acc.length-1;
+  while (hi-lo>1){ const m=(lo+hi)>>1; if (P.acc[m]<=s) lo=m; else hi=m; }
+  const f=(s-P.acc[lo])/Math.max(1e-6, P.acc[hi]-P.acc[lo]), a=P.p[lo], b=P.p[hi];
+  out[0]=a[0]+(b[0]-a[0])*f; out[1]=a[1]+(b[1]-a[1])*f; out[2]=Math.atan2(b[1]-a[1], b[0]-a[0]); return out;
+}
+function bikeAt(T, x, z, a, frame, rider){
+  const ca=Math.cos(a), sa=Math.sin(a), Pt=(u,y)=>[x+ca*u, GROUND+y, z+sa*u], nx=-sa, nz=ca, tyre=[18,18,19];
+  const quad2=(q,c)=>{ quad(T, q, [nx,0,nz], c, 19, 0); quad(T, [q[3],q[2],q[1],q[0]], [-nx,0,-nz], c, 19, 0); };
+  for (const cu of [-0.55, 0.55]) for (let k=0;k<6;k++){ const a0=k/6*Math.PI*2, a1=(k+1)/6*Math.PI*2, R=0.34, r2=0.29;
+    quad2([Pt(cu+Math.cos(a0)*R, 0.34+Math.sin(a0)*R), Pt(cu+Math.cos(a1)*R, 0.34+Math.sin(a1)*R), Pt(cu+Math.cos(a1)*r2, 0.34+Math.sin(a1)*r2), Pt(cu+Math.cos(a0)*r2, 0.34+Math.sin(a0)*r2)], tyre); }
+  quad2([Pt(-0.55,0.32), Pt(0.42,0.36), Pt(0.42,0.42), Pt(-0.55,0.38)], frame);
+  quad2([Pt(-0.2,0.34), Pt(-0.16,0.34), Pt(-0.22,0.86), Pt(-0.27,0.86)], frame);
+  quad2([Pt(-0.22,0.78), Pt(0.42,0.82), Pt(0.42,0.87), Pt(-0.22,0.83)], frame);
+  quad2([Pt(0.42,0.34), Pt(0.47,0.34), Pt(0.5,1.0), Pt(0.45,1.0)], frame);
+  box(T, x+ca*0.48, z+sa*0.48, a+Math.PI/2, 0.3, 0.02, GROUND+0.98, GROUND+1.02, tyre);
+  if (rider){ // seated, leaning to the bars
+    box(T, x-ca*0.05, z-sa*0.05, a, 0.17, 0.2, GROUND+0.9, GROUND+1.5, rider);
+    box(T, x+ca*0.08, z+sa*0.08, a, 0.1, 0.1, GROUND+1.52, GROUND+1.76, [214,170,140]);
+    box(T, x+ca*0.02, z+sa*0.02, a, 0.12, 0.17, GROUND+0.42, GROUND+0.9, [40,44,56]);
+  }
+}
+function buildMovers(){
+  movers = { ferries:[], riders:[], gulls:null, gullData:[] };
+  // harbour buses
+  if (city.ferry){
+    const pts=[]; for (let i=0;i<city.ferry.length;i+=2) pts.push([city.ferry[i]/10, city.ferry[i+1]/10]);
+    const path=catmull(pts, 3);
+    const g=localMesh(T=>{
+      const hull=[232,182,44], white=[236,234,228], glass=[34,42,52];
+      box(T, 0, 0, 0, 10.5, 2.9, -0.5, GROUND+1.0-GROUND, hull, 19);
+      box(T, 10.5, 0, 0, 1.2, 2.0, -0.5, 1.0, hull, 19);
+      box(T, -0.8, 0, 0, 8.4, 2.6, 1.0, 2.75, glass, 19);
+      box(T, -0.8, 0, 0, 8.6, 2.75, 2.75, 3.05, white, 19);
+      box(T, 6.6, 0, 0, 1.3, 1.5, 3.05, 3.9, glass, 19);
+      box(T, 6.6, 0, 0, 1.4, 1.6, 3.9, 4.05, white, 19);
+    });
+    for (let k=0;k<3;k++){
+      const m=new THREE.Mesh(g, moverMat(false)); m.frustumCulled=false; scene.add(m);
+      movers.ferries.push({ m, path, s0:k/3, speed:5.5 });
+    }
+  }
+  // cyclists: a few each way on the bridges wide enough to ride
+  const jackets=[[160,40,36],[30,60,110],[200,170,60],[40,40,44],[226,226,220],[70,110,70]];
+  for (const b of SPANS){
+    const L=b.pb-b.pa; if (L<18) continue;
+    const w=deckWidth(b, (b.pa+b.pb)/2); if (!w || w[1]-w[0]<5) continue;
+    const n=Math.min(6, 1+Math.floor(L/30));
+    for (let k=0;k<n;k++){
+      const dir=k%2 ? 1 : -1, lane=(w[0]+w[1])/2 + dir*Math.min(2.2, (w[1]-w[0])*0.25);
+      const g=localMesh(T=>bikeAt(T, 0, 0, 0, hex3([0x1d1f22,0x6b1e1e,0x1f3550,0xd0d0cc][k%4]), jackets[(k*7+Math.floor(Math.abs(b.cx)))%jackets.length]));
+      const m=new THREE.Mesh(g, moverMat(false)); m.frustumCulled=false; scene.add(m);
+      movers.riders.push({ m, b, dir, lane, s0:hash(b.cx*0.13+k*1.7), speed:4+hash(k+b.cz)*2.5 });
+    }
+  }
+  // gulls: circling over the harbour and canals, flapping now and then
+  const gg=new THREE.BufferGeometry(), V=[], N=[], C=[], W=[], I=[], WIN=[], INF=[];
+  const pv=(x,y,z,c,w)=>{ V.push(x,y,z); N.push(0,1,0); C.push(...c); W.push(w); WIN.push(0,10,3,0); INF.push(19,0,0,0); return V.length/3-1; };
+  { const body=[236,236,232], wing=[208,210,212], tip=[40,40,42];
+    const a=pv(0.32,0,0,body,0), b=pv(-0.3,0.02,0.06,body,0), c=pv(-0.3,0.02,-0.06,body,0); I.push(a,b,c);
+    for (const sgn of [1,-1]){ const r0=pv(0.08,0,0,wing,0), r1=pv(-0.12,0,0,wing,0), o1=pv(-0.18,0.02,0.75*sgn,wing,1), o0=pv(0.02,0.02,0.75*sgn,wing,1), t0=pv(-0.12,0.02,1.0*sgn,tip,1.3), t1=pv(-0.24,0.02,0.95*sgn,tip,1.3);
+      I.push(r0,r1,o1, r0,o1,o0, o0,o1,t1, o0,t1,t0); } }
+  gg.setAttribute('position', new THREE.Float32BufferAttribute(V,3)); gg.setAttribute('normal', new THREE.Float32BufferAttribute(N,3));
+  gg.setAttribute('aCol', new THREE.BufferAttribute(new Uint8Array(C),3,true)); gg.setAttribute('aWing', new THREE.Float32BufferAttribute(W,1));
+  gg.setAttribute('aWin', new THREE.Float32BufferAttribute(WIN,4)); gg.setAttribute('aInfo', new THREE.BufferAttribute(new Uint16Array(INF),4,false)); gg.setIndex(I);
+  const NG=40, gm=new THREE.InstancedMesh(gg, moverMat(true), NG); gm.frustumCulled=false; scene.add(gm); movers.gulls=gm;
+  const centres=[]; if (city.ferry) for (let i=0;i<city.ferry.length;i+=2) centres.push([city.ferry[i]/10, city.ferry[i+1]/10]);
+  centres.push([400,0],[300,-40],[100,880],[-60,700]);
+  for (let k=0;k<NG;k++){ const c=centres[k%centres.length];
+    movers.gullData.push({ cx:c[0]+(hash(k*3.1)-0.5)*80, cz:c[1]+(hash(k*5.7)-0.5)*80, r:18+hash(k*1.3)*40, y:9+hash(k*2.9)*26, w:(0.18+hash(k*4.4)*0.2)*(k%2?1:-1), ph:hash(k*9.1)*6.28 }); }
+}
+const _mv=[0,0,0], _mm=new THREE.Matrix4(), _mq=new THREE.Quaternion(), _me=new THREE.Euler(), _ms=new V3(1,1,1), _mp=new V3();
+function updateMovers(){
+  if (!movers) return;
+  for (const f of movers.ferries){
+    const L=f.path.len, u=((T*f.speed + f.s0*2*L) % (2*L)), s=u<L ? u : 2*L-u, back=u>=L;
+    alongPath(f.path, s, _mv);
+    // slow and turn round at the ends of the route
+    const yaw=_mv[2] + (back ? Math.PI : 0);
+    f.m.position.set(_mv[0], Math.sin(T*0.9+f.s0*9)*0.06, _mv[1]); f.m.rotation.set(0, -yaw, Math.sin(T*0.7+f.s0)*0.01);
+  }
+  for (const r of movers.riders){
+    const b=r.b, L=b.pb-b.pa+10, u=(T*r.speed/L + r.s0) % 1, s=r.dir>0 ? b.pa-5+u*L : b.pb+5-u*L;
+    const x=b.cx+b.ux*s-b.uz*r.lane, z=b.cz+b.uz*s+b.ux*r.lane, y=(s>b.pa && s<b.pb ? deckTop(b, s) : GROUND)-GROUND;
+    const yaw=Math.atan2(b.uz*r.dir, b.ux*r.dir);
+    r.m.position.set(x, y, z); r.m.rotation.set(0, -yaw, 0);
+  }
+  const G=movers.gulls;
+  movers.gullData.forEach((d,k)=>{
+    const a=d.ph+T*d.w, x=d.cx+Math.cos(a)*d.r, z=d.cz+Math.sin(a)*d.r, y=d.y+Math.sin(T*0.3+d.ph)*2;
+    const yaw=a+(d.w>0 ? Math.PI/2 : -Math.PI/2);
+    _mp.set(x, y, z); _me.set(Math.sign(d.w)*0.25, -yaw, 0, 'YXZ'); _mq.setFromEuler(_me); _mm.compose(_mp, _mq, _ms); G.setMatrixAt(k, _mm);
+  });
+  G.instanceMatrix.needsUpdate=true;
 }
 
 // Landmarks built by hand around the laser scan's measurements (tools/build.mjs: HAND). Rings run anticlockwise in x/z.
@@ -2382,7 +2533,7 @@ function loop(now){
   frame(dt, true);
 }
 // #debug: advance the simulation by fixed steps, for capturing stills from a background tab
-if (location.hash==='#debug') window.__dbg = { U, cascades, scene, shadowScene, camera, groundMat, cityMat, waterMat, aoMat, compMat, rtAO, get city(){ return city; }, get AP(){ return AP; }, get P(){ return P; },
+if (location.hash==='#debug') window.__dbg = { U, cascades, scene, shadowScene, camera, groundMat, cityMat, waterMat, aoMat, compMat, rtAO, get city(){ return city; }, get movers(){ return movers; }, get AP(){ return AP; }, get P(){ return P; },
   // drop the glider into free flight at p heading along yaw, e.g. to try a bridge
   place(p, yaw){ state='play'; P.done=false; P.pos.set(p[0],p[1],p[2]); P.prev.copy(P.pos); P.yaw=yaw; P.pitch=0; P.turn=0; P.roll=0; P.speed=BASE; P.cruise=BASE; P.grace=0;
     P.fwd.set(Math.sin(yaw),0,Math.cos(yaw)); P.camPos.copy(P.fwd).multiplyScalar(-5.2).add(P.pos); P.camPos.y+=1.5; resetTrails(); },
@@ -2404,7 +2555,7 @@ function frame(dt, draw){
   if (hintTimer>0){ hintTimer-=dt; if (hintTimer<=0) $('hint').classList.add('off'); }
   flash=Math.max(0,flash-dt*2.2);
   compMat.uniforms.uFade.value=fade; compMat.uniforms.uFlash.value=flash;
-  updateGates(dt); updateTrails(); updateBars(dt); updateSun(dt); updateAudio(); updateHud(); updatePhotos(dt);
+  updateGates(dt); updateTrails(); updateBars(dt); updateSun(dt); updateAudio(); updateHud(); updatePhotos(dt); updateMovers();
   if (draw) render();
 }
 
