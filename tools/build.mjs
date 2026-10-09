@@ -225,7 +225,7 @@ for (const b of blds) if (HAND_SPIRES.some(h=>Math.hypot(b.cx-h.x, b.cz-h.z)<30 
 // them are restyled (wall 97: plain stone, no windows) or hidden (wall 96). The square towers take their turn from the
 // largest OSM part they replace.
 const HAND = [
-  { id:'marble',   x:336.1,  z:-560.6, drop:24,  skip:24,  body:{ r:30, minA:1500, wall:97, colour:0xd2c8b6 } },
+  { id:'marble',   x:336.1,  z:-560.6, drop:24,  skip:27.5, body:{ r:34, minA:40, wall:96, colour:0xd2c8b6 } },
   { id:'chborg',   x:-189.0, z:442.8,  drop:12,  skip:9.5 },
   { id:'cityhall', x:-810.6, z:547.5,  drop:6.5, skip:6.5 },
   { id:'rund',     x:-507.7, z:-114.0, drop:9,   skip:8.6, hide:8 },
@@ -243,6 +243,25 @@ for (const h of HAND){
     const d=Math.hypot(b.cx-h.x, b.cz-h.z);
     if (h.hide && d<h.hide){ b.wall=96; b.noFacade=true; }
     else if (h.body && d<h.body.r && Math.abs(b.A)>h.body.minA){ b.wall=h.body.wall; b.colW=h.body.colour; b.noFacade=true; }
+  }
+}
+// Børsen, the 1620s exchange, burnt in April 2024 and stands under a white restoration tent in the 2025 laser scan and
+// photos. It is modelled by hand as it stood before the fire, on its footprint from kbhkort: centre, length, width,
+// direction of the long side and the gutter height. Its footprint record is hidden.
+{
+  const b=blds.find(b=>Math.hypot(b.cx-30.5, b.cz-506.1)<6 && Math.abs(Math.abs(b.A)-2720)<150);
+  if (b){
+    b.wall=96; b.noFacade=true;
+    const ang=19.48*Math.PI/180;
+    hand.borsen=[43.42, 510.07, +ang.toFixed(4), 130.19, 21.16, +b.h.toFixed(2)];
+    // the restoration's site buildings (first registered 2026) go too; the ground under them is drawn plain
+    hand.plain=[];
+    const cA=Math.cos(ang), sA=Math.sin(ang), onIt=(x,z)=>Math.abs((x-43.42)*cA+(z-510.07)*sA)<68 && Math.abs(-(x-43.42)*sA+(z-510.07)*cA)<13;
+    for (const s of blds) if (s!==b && onIt(s.cx, s.cz)){ s.wall=96; s.noFacade=true; }   // small records at its ends
+    for (const s of blds) if (s.year===2026 && Math.hypot(s.cx-43.42, s.cz-510.07)<120){ s.wall=96; s.noFacade=true; hand.plain.push(s.rings[0].flat().map(v=>+v.toFixed(1))); }
+    const ca=Math.cos(ang), sa=Math.sin(ang);
+    for (let i=lms.length-1; i>=0; i--){ const [x,z]=centroid(lms[i].r), u=(x-43.42)*ca+(z-510.07)*sa, v=-(x-43.42)*sa+(z-510.07)*ca;
+      if (Math.abs(u)<70 && Math.abs(v)<15) lms.splice(i,1); }
   }
 }
 lms.sort((a,b)=>a.top-b.top);
@@ -287,7 +306,23 @@ if (fs.existsSync(path.join(DK, 'ndsm.json'))){
     const roof=fit(20, 45, 1065, -258, 110), fly=fit(36, 45, 1065, -258, 110);
     hand.opera=[roof, fly];
     const ca=Math.cos(roof[2]), sa=Math.sin(roof[2]), inRoof=(x,z)=>{ const u=(x-roof[0])*ca+(z-roof[1])*sa, v=-(x-roof[0])*sa+(z-roof[1])*ca; return u>roof[3] && u<roof[4] && v>roof[5] && v<roof[6]; };
-    for (const b of blds) if (inRoof(b.cx, b.cz)){ b.wall=98; b.noFacade=true; }
+    // Two of the footprints under the slab are the canopy's outline and the plaza under it: hide them, so the roof runs
+    // out over open ground. The main building's curved glass front (the part nearer the harbour) is drawn as glass.
+    const U=(x,z)=>(x-roof[0])*ca+(z-roof[1])*sa, Vv=(x,z)=>-(x-roof[0])*sa+(z-roof[1])*ca;
+    let front=null;
+    for (const b of blds) if (inRoof(b.cx, b.cz)){
+      b.noFacade=true;
+      if (U(b.cx,b.cz)<-20 && Math.abs(b.A)<4000){ b.wall=96; continue; }
+      b.wall=98;
+      if (Math.abs(b.A)>8000){
+        // the front: the run of the outer ring nearer the harbour than u=-15, in order
+        const r=b.rings[0], n=r.length, inF=k=>U(r[k][0],r[k][1])<-15 && Math.abs(Vv(r[k][0],r[k][1]))<30;
+        let k0=0; while (k0<n && inF(k0)) k0++;
+        const pts=[]; for (let j=1;j<=n;j++){ const k=(k0+j)%n; if (inF(k)) pts.push(r[k]); else if (pts.length) break; }
+        front=pts.map(p=>[+p[0].toFixed(2), +p[1].toFixed(2)]);
+      }
+    }
+    if (front) hand.opera.push(front.flat());
     for (let i=lms.length-1; i>=0; i--){ const [cx,cz]=centroid(lms[i].r); if (inRoof(cx,cz)) lms.splice(i,1); }
     console.log('opera roof', roof.join(' '), 'fly tower', fly.join(' '));
   }
@@ -601,7 +636,7 @@ const SP=[spans.length]; for (const b of spans){ SP.push(dm(b.c[0]), dm(b.c[1]),
 const LP=[lamps.length]; for (const l of lamps) LP.push(...l.map(dm));
 const TR=[]; for (const t of trees) TR.push(dm(t[0]), dm(t[1]), dm(t[2]), dm(t[3]));
 // chimneys found in the laser scan (tools/roofs.mjs): x, z, base, top, width, depth in decimetres, angle in milliradians
-const CH=[]; if (roofs) for (const r of roofs) if (r) for (const c of r.chims) CH.push(dm(c[0]), dm(c[1]), dm(c[2]), dm(c[3]), dm(c[4]), dm(c[5]), Math.round(c[6]*1000));
+const CH=[]; if (roofs) roofs.forEach((r,i) => { if (r && blds[i].wall!==96) for (const c of r.chims) if (!HAND.some(h=>Math.hypot(c[0]-h.x, c[1]-h.z)<h.skip)) CH.push(dm(c[0]), dm(c[1]), dm(c[2]), dm(c[3]), dm(c[4]), dm(c[5]), Math.round(c[6]*1000)); });
 console.log('chimneys', CH.length/7);
 const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), spans:SP, lamps:LP, trees:TR, chim:CH, hand,
   kerb:encList(kerbs.map(l=>[l])), mast:masts.flat().map(dm), paved:encList(paved),

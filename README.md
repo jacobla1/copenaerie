@@ -15,7 +15,8 @@ python3 -m http.server 8765
 
 ## Controls
 
-- Mouse, arrow keys or WASD to steer; drag on touch screens
+- Mouse, arrow keys or WASD to steer
+- On phones and tablets, tilt to steer: bank the phone like a steering wheel to turn, tip the top edge away to dive and back to climb. Level is however the phone is held when the run starts. The **Tilt** button switches back to dragging on the screen. Add `?tilt=1` to try it with a desktop browser's sensor emulation
 - **Esc** returns to the flyby
 - **M** toggles sound
 - **N** switches between dusk and night
@@ -42,7 +43,16 @@ Each roof is meshed from the laser heights inside its footprint (`tools/roofs.mj
 
 Facade colours come from Klimadatastyrelsen's 2025 oblique aerial photos (`tools/fetch_oblique.py`, `tools/facades_dk.py`). Every wall is projected into the north, east, south and west photos that face it, views blocked in the laser surface model are dropped, and the median colour of the clearest view is kept. About 54 % of wall segments get a real colour, and the rest (mostly courtyards) fall back to a palette chosen from BBR material and year. Windows, frames with glazing bars, sills, surrounds, doors, shopfronts with sign boards, brick courses, plinths, cornices and the shadow under the eaves are drawn in the shader. The windows sit back in the wall: the shader finds where the view ray meets the set-back glass, draws the opening's inner sides and lets the opening shade the glass. Behind the glass are curtains, blinds and lit rooms, and the panes reflect the sky or the street. A screen-space ambient occlusion pass darkens corners and the foot of each wall on desktop. Vor Frelsers Kirke's church body uses the laser-scanned roof instead of OpenStreetMap's boxes, and its gilded spiral spire and Børsen's dragon-tail spire are modelled by hand, and about 1,600 street lamps hang on wires between facing buildings along OpenStreetMap's streets. Nyhavn's ships are placed procedurally along the measured canal.
 
-Roofs carry about 17,000 chimneys, found where the raw laser scan stands well above the filtered roof surface. Pitched roofs run 0.45 m past the wall and end in a dark gutter, except where the house next door shares the wall. Bay windows go on the apartment blocks built from 1885 to 1935, balconies on modern blocks, and a gabled frontispiece over the canal on Nyhavn's old houses. The Marble Church, Christiansborg's tower with its three crowns, City Hall's tower, the Round Tower and the Opera's roof are modelled by hand around the laser scan's measurements.
+Roofs carry about 17,000 chimneys, found where the raw laser scan stands well above the filtered roof surface. Pitched roofs run 0.45 m past the wall and end in a dark gutter, except where the house next door shares the wall. Bay windows go on the apartment blocks built from 1885 to 1935, balconies on modern blocks, and a gabled frontispiece over the canal on Nyhavn's old houses. The landmarks are modelled by hand around the laser scan's measurements and checked against Klimadatastyrelsen's 2025 oblique aerial photos:
+
+- **The Marble Church:** the rotunda with its statues and the portico toward Amalienborg, the drum of paired columns, the copper dome with 24 gilded ribs and two rows of lucarnes, and the lantern under a gilded ball and cross.
+- **Christiansborg's tower:** the granite shaft, then the bell stage, lantern and onion in dark brown copper, a ring of gilded balls and the three crowns.
+- **City Hall's tower:** a red brick shaft with an arcade, white stone bands and a clock on each face, then a copper hood with corner pinnacles, an open lantern and the spire.
+- **The Round Tower:** windows climbing beside the ramp, the railed platform, the observatory and the flag.
+- **The Opera:** its roof slab runs out over an open plaza, above the curved glass front of the foyer.
+- **Knippelsbro:** its two control towers.
+- **Amalienborg:** Frederik V on horseback.
+- **Børsen:** shown as it stood before the fire of April 2024, since the 2025 laser scan and photos show only its restoration tent. It has its rows of gables, its stepped end gables and the dragon spire.
 
 At street level, kerbs follow GeoDanmark's kerb lines, with the road side worked out from the nearest street centreline. About 21,000 cars are parked along ordinary streets and in OpenStreetMap's parking areas, and about 10,600 bicycles stand at its bicycle parking. Squares, pedestrian areas and the quays are cobbled close up. The quays have granite coping and iron bollards, and Nyhavn has café tables under market umbrellas. This street detail is drawn only within about 600 m of the camera. Harbour buses run down the inner harbour, cyclists cross the longer bridges, and gulls circle over the water. Press N, or the Dusk button, for the same lap at night: lit windows, floodlit landmarks, pools of lamplight and stars.
 
