@@ -122,10 +122,10 @@ button:focus-visible{outline:2px solid var(--ember);outline-offset:3px}
 <canvas id="gl" tabindex="0" aria-label="CopenAerie, a 3D glider game over Copenhagen"></canvas>
 
 <div id="brand" class="ui fadeable"><h1>COPENAERIE</h1><p>A glider run through København</p></div>
-<div id="sound" class="ui fadeable"><button id="snd" type="button" aria-pressed="true">Sound on</button></div>
+<div id="sound" class="ui fadeable"><button id="nite" type="button" aria-pressed="false">Dusk</button> <button id="snd" type="button" aria-pressed="true">Sound on</button></div>
 <div id="caption" class="ui"><span class="kicker" id="cap-k">København</span><span class="line" id="cap-l"></span></div>
 <div id="cta" class="ui fadeable"><span class="key">Enter</span><button class="fly" id="fly" type="button">Fly the city</button></div>
-<div id="credits" class="ui fadeable">Aerial photo 2025 and height model: Klimadatastyrelsen · Buildings, BBR and trees: Københavns Kommune, GeoDanmark · Landmarks and bridges © OpenStreetMap contributors</div>
+<div id="credits" class="ui fadeable">Aerial photo 2025, height model, kerbs and masts: Klimadatastyrelsen · Buildings, BBR and trees: Københavns Kommune, GeoDanmark · Landmarks, bridges, squares and parking © OpenStreetMap contributors</div>
 
 <div id="hud" class="ui fadeable off" aria-live="off">
   <div class="inst" id="i-gate"><span class="lab">Next gate</span><span class="val" id="v-gate">01<small>/21</small></span><span class="where" id="v-where"></span></div>
@@ -239,6 +239,7 @@ const U = {
   uSh0:{value:cascades[0].rt.depthTexture}, uSh1:{value:cascades[1].rt.depthTexture},
   uShM0:{value:cascades[0].mat}, uShM1:{value:cascades[1].mat}, uShT:{value:new THREE.Vector2(1/SHADOW_RES, 1/SHADOW_RES)},
   uOv:{value:null}, uOvB:{value:new THREE.Vector4(0,0,1,1)}, uPhotoGain:{value:0.95}, uPhotoSat:{value:1.8}, uPhotoCon:{value:1.25},
+  uNight:{value:0},
 };
 // Aerial photo lookup: a 400 m tile's full-resolution image once it has streamed in, else the whole-map overview.
 const PHOTO = `uniform sampler2D uOv; uniform vec4 uOvB; uniform sampler2D uTex; uniform vec4 uTexB; uniform float uTexOn; uniform float uPhotoGain; uniform float uPhotoSat; uniform float uPhotoCon;
@@ -265,7 +266,10 @@ const PHOTO = `uniform sampler2D uOv; uniform vec4 uOvB; uniform sampler2D uTex;
   }
 `;
 const COMMON = `
-uniform vec3 uSunDir; uniform vec3 uSunCol; uniform float uTime;
+uniform vec3 uSunDir; uniform vec3 uSunCol; uniform float uTime; uniform float uNight;
+// night mode (uNight 0..1): sky light turns to a dim blue and the low sun's warmth goes
+vec3 nightAmb(vec3 a){ return a*mix(vec3(1.0), vec3(0.16, 0.2, 0.34), uNight); }
+float dayK(){ return 1.0 - 0.94*uNight; }
 uniform sampler2D uSh0; uniform sampler2D uSh1; uniform mat4 uShM0; uniform mat4 uShM1; uniform vec2 uShT;
 float hash12(vec2 p){ vec3 p3=fract(vec3(p.xyx)*.1031); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
 float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); vec2 u=f*f*(3.-2.*f);
@@ -280,7 +284,10 @@ vec3 skyCol(vec3 d){
   vec3 c = mix(horizon, zenith, pow(y, 0.42));
   c += vec3(1.0,0.5,0.22)*pow(sd, 6.0)*0.55;
   c += vec3(1.3,0.8,0.45)*pow(sd, 60.0)*1.2;
-  return c;
+  // night: deep blue overhead, the last light and the city's glow along the horizon
+  vec3 nc = mix(vec3(0.045,0.05,0.085), vec3(0.004,0.008,0.026), pow(y, 0.5));
+  nc += vec3(0.16,0.07,0.03)*pow(1.0-y, 10.0)*(0.45 + 0.55*toward*toward);
+  return mix(c, nc, uNight);
 }
 vec3 applyFog(vec3 col, vec3 wp){
   vec3 v = wp - cameraPosition; float dist = length(v); vec3 d = v/max(dist,1e-3);
@@ -401,7 +408,7 @@ const cityMat = new THREE.ShaderMaterial({
         fcol = kind < 1.5 ? vec3(0.78, 0.77, 0.74) : vec3(0.09, 0.09, 0.1);
         win = mix(glassM*(1.0 - frame), mix(box(fx, 0.5-hw, 0.5+hw, wx), 2.0*hw, fX) * mix(box(fy, y0, y1, wy), y1-y0, fY) * 0.85*ok, farAway);
         // the room behind: mostly dark, some lit; curtains and blinds in many
-        lit = step(0.9, r2) * (1.0 - farAway*0.6);
+        lit = step(mix(0.9, 0.5, uNight), r2) * (1.0 - farAway*0.6);
         if (fl < 0.5) lit = max(lit, step(0.6, hash12(vec2(ci+seed*29.0, 7.0)))*(shop ? 0.9 : 0.6));
         vec3 warm = mix(vec3(1.0, 0.5, 0.2), vec3(1.0, 0.74, 0.46), r3);
         float cur = 0.0;
@@ -420,7 +427,8 @@ const cityMat = new THREE.ShaderMaterial({
         if (shop) inEm = lit * warm * (0.22 + 0.25*r1) * (0.55 + 0.45*vnoise(vec2(wu*7.0, wv*2.5) + r1*17.0)) * (0.7 + 0.3*step(0.12, fract(wv*3.0)));
         // window by window choices alias once windows blur together along the wall: use their average there
         inAlb = mix(inAlb, vec3(0.08, 0.075, 0.07), fX);
-        inEm = mix(inEm, vec3(1.0, 0.6, 0.3)*(fl < 0.5 ? 0.3 : 0.06), fX);
+        inEm = mix(inEm, vec3(1.0, 0.6, 0.3)*(fl < 0.5 ? 0.3 : 0.06 + 0.3*uNight), fX);
+        inEm *= 1.0 + uNight*0.6;
         // doors: painted panels under a small fanlight
         if (isDoor){
           float door = glassM * step(wv, 0.8);
@@ -497,11 +505,15 @@ const cityMat = new THREE.ShaderMaterial({
       float ao = kind < 9.5 || kind > 12.5 ? mix(0.42, 1.0, smoothstep(0.0, 9.0, h)) : 1.0;
       vec3 amb = mix(vec3(0.11,0.09,0.08), vec3(0.20,0.25,0.40), n.y*0.5+0.5);
       amb += vec3(0.14,0.09,0.05)*max(-n.y,0.0) + vec3(0.06,0.05,0.04)*(1.0-abs(n.y));
+      amb = nightAmb(amb);
       vec3 sunL = uSunCol*ndl*sh, ambL = amb*ao;
       vec3 col = alb*(sunL + ambL);
       // the photo already holds the midday light, so our evening sun only shades it
       if (kind > 17.5 && kind < 18.5) col = vec3(5.0, 3.4, 1.7);
-      else if (kind > 16.5) col = alb*(vec3(0.66,0.66,0.72) + vec3(1.0,0.82,0.62)*(0.36*ndl*sh/max(uSunDir.y+0.35,0.5)));
+      else if (kind > 16.5) col = alb*(nightAmb(vec3(0.66,0.66,0.72)) + vec3(1.0,0.82,0.62)*(0.36*ndl*sh/max(uSunDir.y+0.35,0.5))*dayK());
+      // at night: floodlit landmarks, and the light of shops and lamps on the lower walls
+      if (kind > 12.5 && kind < 14.5) col += alb*vec3(1.0,0.8,0.55)*uNight*0.7;
+      if (kind < 4.5) col += alb*vec3(1.0,0.62,0.3)*uNight*0.3*(1.0 - smoothstep(0.0, 7.0, h));
       // the opening's inner sides: sunlit only where they turn to the sun, and half hidden from the sky
       col = mix(col, alb*(uSunCol*max(dot(revN, uSunDir), 0.0)*sh*0.8 + ambL*0.5), rev);
       // glass: the sky above the horizon, the street and the houses opposite below it, over the room behind
@@ -516,7 +528,8 @@ const cityMat = new THREE.ShaderMaterial({
       col = mix(col, glass, win);
       col = mix(col, fcol*(sunL*recSh + ambL*0.9), frame);
       if (kind > 11.5 && kind < 12.5 || kind > 13.5 && kind < 14.5) col += uSunCol*pow(max(dot(R,uSunDir),0.0), 24.0)*0.18*sh*alb.g*3.0;
-      gl_FragColor = vec4(applyFog(col, vW), 1.0);
+      // max() drops a stray NaN (IEEE maxNum), which the bloom would otherwise smear into a black square
+      gl_FragColor = vec4(min(max(applyFog(col, vW), vec3(0.0)), vec3(64.0)), 1.0);
     }`
 });
 const cityDepth = new THREE.ShaderMaterial({ vertexShader:`void main(){ gl_Position=projectionMatrix*viewMatrix*modelMatrix*vec4(position,1.0); }`, fragmentShader:FS_DEPTH, side:THREE.DoubleSide });
@@ -546,7 +559,9 @@ const groundMat = new THREE.ShaderMaterial({
       float ao = texture2D(uAO, uv).r;
       vec3 n = vec3(0.0,1.0,0.0);
       float sh = shadowAt(vW, n);
-      vec3 col = alb*(vec3(0.66,0.66,0.72)*(0.75+0.25*ao) + vec3(1.0,0.82,0.62)*0.42*sh);
+      vec3 col = alb*(nightAmb(vec3(0.66,0.66,0.72))*(0.75+0.25*ao) + vec3(1.0,0.82,0.62)*0.42*sh*dayK());
+      // pools of light under the street lamps and in front of shops (blue channel of the ground map)
+      col += alb*vec3(1.0,0.66,0.34)*(1.0 - m.b)*(0.12 + 1.9*uNight);
       gl_FragColor = vec4(applyFog(col, vW), 1.0);
     }`
 });
@@ -560,7 +575,8 @@ const outerMat = new THREE.ShaderMaterial({
       float blocks = step(0.35, vnoise(vW.xz*0.035)) * (0.6+0.4*vnoise(vW.xz*0.11));
       vec3 alb = mix(vec3(0.16,0.15,0.14), vec3(0.30,0.20,0.16), blocks);
       alb = mix(alb, vec3(0.10,0.14,0.07), smoothstep(0.62,0.8,vnoise(vW.xz*0.006+3.0)));
-      vec3 col = alb*(uSunCol*uSunDir.y*0.7 + vec3(0.2,0.24,0.38)*0.8);
+      vec3 col = alb*(uSunCol*uSunDir.y*0.7 + nightAmb(vec3(0.2,0.24,0.38)*0.8));
+      col += vec3(1.0,0.6,0.3)*0.02*uNight*step(0.5, vnoise(vW.xz*0.08)) * blocks;  // distant streets lit up
       gl_FragColor = vec4(applyFog(col, vW), 1.0);
     }`
 });
@@ -597,7 +613,7 @@ const treeMat = new THREE.ShaderMaterial({
       vec3 sn = normalize(n + vec3(0.0,0.35,0.0));
       float sh = shadowAt(vW + n*0.4, sn);
       float wrap = clamp(dot(n, uSunDir)*0.6 + 0.4, 0.0, 1.0);
-      vec3 amb = mix(vec3(0.07,0.07,0.05), vec3(0.17,0.22,0.36), n.y*0.5+0.5) * (0.55 + 0.45*clamp(vRel,0.0,1.0));
+      vec3 amb = nightAmb(mix(vec3(0.07,0.07,0.05), vec3(0.17,0.22,0.36), n.y*0.5+0.5) * (0.55 + 0.45*clamp(vRel,0.0,1.0)));
       vec3 col = alb*(uSunCol*wrap*sh*0.9 + amb);
       vec3 V = normalize(cameraPosition - vW);
       col += alb*uSunCol*0.35*pow(max(dot(-V, uSunDir), 0.0), 4.0)*sh*step(0.5, vPart);
@@ -613,13 +629,20 @@ const skyMat = new THREE.ShaderMaterial({
     void main(){
       vec3 d=normalize(vW-cameraPosition); vec3 c=skyCol(d);
       float sd=max(dot(d,uSunDir),0.0);
-      c += vec3(40.0,26.0,14.0)*smoothstep(0.99955,0.99975,sd);
+      c += vec3(40.0,26.0,14.0)*smoothstep(0.99955,0.99975,sd)*(1.0 - uNight);
+      float cl0 = 0.0;
       if (d.y>0.0){
         vec2 uv = d.xz/(d.y+0.12)*0.55 + vec2(uTime*0.004, uTime*0.0015);
         float cl = vnoise(uv*2.3)*0.55 + vnoise(uv*5.1+3.0)*0.3 + vnoise(uv*11.0)*0.15;
         cl = smoothstep(0.52,0.82,cl)*smoothstep(0.0,0.2,d.y)*(1.0-0.5*smoothstep(0.5,0.9,d.y));
         vec3 cc = mix(vec3(0.75,0.42,0.40), vec3(1.7,1.05,0.6), clamp(pow(sd,4.0)+0.25,0.0,1.0));
-        c = mix(c, cc, cl*0.6);
+        cc = mix(cc, vec3(0.05,0.035,0.03), uNight);
+        c = mix(c, cc, cl*0.6); cl0 = cl;
+      }
+      if (uNight > 0.01 && d.y > 0.0){
+        vec2 sp = d.xz/(d.y + 0.35)*260.0; float st = hash12(floor(sp));
+        float star = step(0.9965, st)*smoothstep(0.45, 0.0, length(fract(sp) - 0.5))*(0.4 + 0.6*fract(st*91.0));
+        c += vec3(0.85, 0.9, 1.0)*star*uNight*smoothstep(0.04, 0.3, d.y)*(1.0 - cl0);
       }
       gl_FragColor=vec4(c,1.0);
     }`
@@ -645,12 +668,14 @@ const waterMat = new THREE.ShaderMaterial({
       float fres = 0.03 + 0.97*pow(1.0-ndv, 5.0);
       vec4 pc = uTexMat*vec4(vW,1.0);
       vec3 refl = texture2D(uRefl, pc.xy/pc.w + g*0.25).rgb;
-      vec3 body = vec3(0.012,0.04,0.045);
+      vec3 body = vec3(0.012,0.04,0.045)*(1.0 - 0.6*uNight);
       vec3 col = mix(body, refl, clamp(fres*1.1 + 0.18, 0.0, 1.0));
       vec3 R = reflect(-V, n);
       float rs = max(dot(R,uSunDir),0.0);
       float sh = shadowAt(vW, vec3(0.0,1.0,0.0));
-      col += uSunCol*(pow(rs,260.0)*3.0 + pow(rs,20.0)*0.04)*sh;
+      // the sun's path on the water: a broad warm sheen toward it, and glints on the waves that catch it
+      float glint = smoothstep(0.6, 0.95, vnoise(p*3.4 + vec2(uTime*0.9, -uTime*0.6)))*pow(rs, 36.0);
+      col += uSunCol*(pow(rs,260.0)*3.0 + pow(rs,20.0)*0.04 + pow(rs,7.0)*0.05 + glint*1.4)*sh;
       gl_FragColor = vec4(applyFog(col, vW), 1.0);
     }`
 });
@@ -678,6 +703,7 @@ const cloudMat = new THREE.ShaderMaterial({
       vec3 col = mix(vec3(0.30,0.28,0.38), uSunCol*0.55+vec3(0.25,0.22,0.30), lit);
       vec3 vd = normalize(vW-cameraPosition);
       col += uSunCol*0.5*pow(max(dot(vd,uSunDir),0.0),10.0)*(1.0-a);
+      col *= mix(1.0, 0.1, uNight);
       gl_FragColor = vec4(applyFog(col, vW), a*vA);
     }`
 });
@@ -905,6 +931,59 @@ function nextRoof(RF){
 }
 // Walls under a laser roof: every outline point carries its own eave height. Window columns run along each
 // straight stretch of wall, so u and L are measured along runs of nearly collinear outline segments.
+// Facade geometry by building type: bay windows on the apartment blocks of 1885-1935, balconies on modern blocks,
+// and on Nyhavn's old houses a gabled frontispiece over the canal. Called per straight street wall from wallsTop:
+// (ax,az) its start, (ux,uz) along it, (nx,nz) out of the building, L its length, lo its lowest eave above the street.
+function prism(T, ax, az, ux, uz, nx, nz, u0, u1, d, y0, y1, c, kind, seed, fh, floors){
+  const P=(u,o)=>[ax+ux*u+nx*o, az+uz*u+nz*o], r=[...P(u0,0), ...P(u1,0), ...P(u1,d), ...P(u0,d)];
+  let rr=new Float32Array(r); if (ringArea(rr)<0) rr=new Float32Array([...P(u0,d), ...P(u1,d), ...P(u1,0), ...P(u0,0)]);
+  walls(T, rr, y0, y1, c, kind, seed, fh, floors); return rr;
+}
+function decoFor(kind, year, floors, fh, wc, cx, cz, seed){
+  const nyU=(cx-226)*0.9117+(cz+87)*0.411, nyV=-(cx-226)*0.411+(cz+87)*0.9117;
+  if (nyU>60 && nyU<400 && nyV>-30 && nyV<48 && floors<=5) return (T, ax, az, ux, uz, nx, nz, L, lo, wc) => {
+    // facing the canal? (its axis runs along nyU, at about nyV = 10)
+    const mx=ax+ux*L/2, mz=az+uz*L/2, v=-(mx-226)*0.411+(mz+87)*0.9117, toward=(v<10 ? 1 : -1);
+    if ((-nx*0.411+nz*0.9117)*toward < 0.7 || L<4.5 || lo<5) return;
+    const w=Math.min(3.4, L*0.42), u0=L/2-w/2, u1=L/2+w/2, y0=GROUND+lo, hw=2.0, roof=[64,58,56], trim=[236,232,222];
+    prism(T, ax, az, ux, uz, nx, nz, u0, u1, -1.6, y0-0.3, y0+hw, wc, 1, seed, hw, 99);
+    const A=[ax+ux*u0, az+uz*u0], B=[ax+ux*u1, az+uz*u1], top=[ax+ux*L/2, az+uz*L/2], yt=y0+hw+1.2;
+    quad(T, [[A[0],y0+hw,A[1]],[B[0],y0+hw,B[1]],[top[0],yt,top[1]],[top[0],yt,top[1]]], [nx,0,nz], wc, 1, seed);
+    quad(T, [[A[0]-0.1*ux,y0+hw,A[1]-0.1*uz],[A[0]-0.1*ux,y0+hw+0.18,A[1]-0.1*uz],[top[0],yt+0.18,top[1]],[top[0],yt,top[1]]], [nx,0.3,nz], trim, 19, 0);
+    quad(T, [[top[0],yt,top[1]],[top[0],yt+0.18,top[1]],[B[0]+0.1*ux,y0+hw+0.18,B[1]+0.1*uz],[B[0]+0.1*ux,y0+hw,B[1]+0.1*uz]], [nx,0.3,nz], trim, 19, 0);
+    const back=(p,d)=>[p[0]-nx*d, p[1]-nz*d];
+    const Ab=back(A,1.6), Bb=back(B,1.6), Tb=back(top,1.6);
+    quad(T, [[A[0],y0+hw,A[1]],[Ab[0],y0+hw,Ab[1]],[Tb[0],yt,Tb[1]],[top[0],yt,top[1]]], [-ux,1,-uz], roof, 19, 0);
+    quad(T, [[top[0],yt,top[1]],[Tb[0],yt,Tb[1]],[Bb[0],y0+hw,Bb[1]],[B[0],y0+hw,B[1]]], [ux,1,uz], roof, 19, 0);
+  };
+  if (kind===1 && year>=1885 && year<=1935 && floors>=4) return (T, ax, az, ux, uz, nx, nz, L, lo, wc) => {
+    if (L<10) return;
+    const nc=Math.max(1, Math.floor((L-0.6)/3.1)), cs=L/nc, top=Math.min(lo, floors*fh)-0.25;
+    if (top<fh*3) return;
+    const cols = L>26 ? [Math.floor(nc*0.25), Math.floor(nc*0.75)] : [Math.floor(nc/2)];
+    for (const ci of cols){
+      const uc=(ci+0.5)*cs, w=cs*0.46;
+      prism(T, ax, az, ux, uz, nx, nz, uc-w, uc+w, 0.75, GROUND+fh, GROUND+top, wc, 1, seed, fh, floors);
+      const r=[[ax+ux*(uc-w), az+uz*(uc-w)],[ax+ux*(uc+w), az+uz*(uc+w)],[ax+ux*(uc+w)+nx*0.75, az+uz*(uc+w)+nz*0.75],[ax+ux*(uc-w)+nx*0.75, az+uz*(uc-w)+nz*0.75]];
+      quad(T, r.map(p=>[p[0], GROUND+top+0.02, p[1]]), [0,1,0], [70,66,64], 19, 0);
+      quad(T, r.map(p=>[p[0], GROUND+fh, p[1]]), [0,-1,0], shade(wc,0.55), 19, 0);
+    }
+  };
+  if (kind===2 && year>=1930 && floors>=3) return (T, ax, az, ux, uz, nx, nz, L, lo) => {
+    if (L<8) return;
+    const nc=Math.max(1, Math.floor((L-0.6)/2.3)), cs=L/nc, NT=nearTileFor(ax+ux*L/2, az+uz*L/2), rail=hash(seed*7.3)<0.5 ? [40,44,48] : [150,160,166];
+    const top=Math.min(floors-1, Math.floor(lo/fh)-1, 12);
+    for (let ci=1; ci<nc; ci+=3) for (let fl=1; fl<=top; fl++){
+      const uc=(ci+0.5)*cs, w=cs*0.55, y=GROUND+fl*fh;
+      const rr=prism(NT, ax, az, ux, uz, nx, nz, uc-w, uc+w, 1.3, y-0.18, y, [196,192,186], 19, 0, 3, 0);
+      cap(NT, [rr], y, [170,166,160], 19, 0);
+      const F=(u,o,yy)=>[ax+ux*u+nx*o, yy, az+uz*u+nz*o];
+      quad(NT, [F(uc-w,1.3,y),F(uc+w,1.3,y),F(uc+w,1.3,y+1.0),F(uc-w,1.3,y+1.0)], [nx,0,nz], rail, 19, 0);
+      quad(NT, [F(uc+w,1.25,y),F(uc-w,1.25,y),F(uc-w,1.25,y+1.0),F(uc+w,1.25,y+1.0)], [-nx,0,-nz], rail, 19, 0);
+    }
+  };
+  return null;
+}
 // another building right outside this wall?
 function shared(x, z, nx, nz){
   for (const d of [1.2, 2.4]){
@@ -914,7 +993,7 @@ function shared(x, z, nx, nz){
   return false;
 }
 // eave > 0: a pitched roof, so the roof runs on that far past the wall and ends in a dark gutter
-function wallsTop(T, P, s, n, c, kind, seed, fh, floors, FC, fo, eave){
+function wallsTop(T, P, s, n, c, kind, seed, fh, floors, FC, fo, eave, deco){
   const X=k=>P[(s+k%n)*3]/10, Z=k=>P[(s+k%n)*3+1]/10, Hh=k=>P[(s+k%n)*3+2]/10, c0=c;
   const ang=k=>Math.atan2(Z(k+1)-Z(k), X(k+1)-X(k));
   const brk=k=>{ let d=Math.abs(ang(k)-ang(k+n-1)); if (d>Math.PI) d=2*Math.PI-d; return d>0.06; };
@@ -942,6 +1021,16 @@ function wallsTop(T, P, s, n, c, kind, seed, fh, floors, FC, fo, eave){
         }
       }
       u+=L;
+    }
+    // a straight street wall: bay windows, balconies or a gable can go on it
+    if (deco && len>=5){
+      const ax=X(k0), az=Z(k0), bx=X(k0+m), bz=Z(k0+m), L=Math.hypot(bx-ax,bz-az);
+      if (L>len*0.97){
+        let lo=Infinity; for (let j=0;j<=m;j++) lo=Math.min(lo, Hh(k0+j));
+        const ux=(bx-ax)/L, uz=(bz-az)/L, nx=uz, nz=-ux;
+        const fm = FC ? FC[fo + (k0+(m>>1))%n] : 0;  // the wall's own photo colour, so additions match it
+        if (!shared((ax+bx)/2, (az+bz)/2, nx, nz)) deco(T, ax, az, ux, uz, nx, nz, L, lo, fm ? facadeRGB(fm, [0,0,0]) : c0);
+      }
     }
     k0+=m; done+=m;
   }
@@ -1098,7 +1187,8 @@ async function generate(){
     const R = nextRoof(RF), FC = nextFacade(FD);
     if (R){
       const eave = rise>0 || roof===1 || roof===2 || roof===10 ? 0.45 : 0;
-      let s=0; for (const n of R.counts){ wallsTop(T, R.p, s, n, wc, kind, seed, fh, Math.min(floors,40), FC && FC.length>=s+n ? FC : null, s, eave); s+=n; }
+      const deco = decoFor(kind, year, floors, fh, wc, cx, cz, seed);
+      let s=0; for (const n of R.counts){ wallsTop(T, R.p, s, n, wc, kind, seed, fh, Math.min(floors,40), FC && FC.length>=s+n ? FC : null, s, eave, deco); s+=n; }
       roofMesh(T, R, seed);
       const P=R.p; let lo=Infinity; for (let k=0;k<s;k++) lo=Math.min(lo, P[k*3+2]);
       const lod=Math.round(lo+GROUND*10); rasterFill(rings, j=>{ if (lod>H2[j]) H2[j]=lod; });
@@ -1211,6 +1301,10 @@ async function generate(){
     g.index.onUpload(function(){ this.array = null; });
   }
   ntiles.clear();
+  // draw the near meshes once so their vertex data goes to the GPU and the JavaScript copies can be dropped
+  for (const t of NEAR){ t.m.visible=true; t.m.frustumCulled=false; }
+  renderer.setRenderTarget(rtScene); renderer.render(scene, camera); renderer.setRenderTarget(null);
+  for (const t of NEAR){ t.m.visible=false; t.m.frustumCulled=true; }
 
   setLoad('Painting the streets', 0.7); await tick();
   paintGround(waterRings);
@@ -1751,6 +1845,18 @@ function paintGround(waterRings){
   ctx.fillStyle='#fff'; ctx.fillRect(0,0,S,S);
   ctx.fillStyle='#f0f'; if (city.paved) ctx.fill(path(decodeList(city.paved)), 'nonzero');
   ctx.strokeStyle='#f0f'; ctx.lineWidth=11*sx; ctx.lineJoin='round'; ctx.stroke(path(waterRings));
+  // light pools in blue (0 = brightest): under each street lamp, and along the fronts of the older blocks with shops
+  ctx.globalCompositeOperation='multiply';
+  const pool=(x, z, r, k)=>{ const X=(x-bounds[0])*sx, Y=(z-bounds[1])*sz, R=r*sx, g=ctx.createRadialGradient(X,Y,0,X,Y,R);
+    g.addColorStop(0, `rgb(255,255,${Math.round(255*(1-k))})`); g.addColorStop(1, 'rgb(255,255,255)'); ctx.fillStyle=g; ctx.fillRect(X-R,Y-R,2*R,2*R); };
+  const LP=city.lamps||[0]; for (let i=1;i<LP.length;i+=7) pool(LP[i]/10, LP[i+1]/10, 7, 0.75);
+  const MS=city.mast||[]; for (let i=0;i<MS.length;i+=2){ const x=MS[i]/10, z=MS[i+1]/10; if (hash(x*0.53+z*0.91)<0.55) pool(x, z, 6, 0.7); }
+  ctx.strokeStyle='rgb(255,255,150)'; ctx.lineWidth=3*sx; ctx.filter='blur(2px)';
+  const fronts=new Path2D(); let bi=0; const BB=city.B;
+  while (bi<BB.length){ const floors=BB[bi+5], year=BB[bi+6], wall=BB[bi+3]; const [rings, ni]=decodeRings(BB, bi+10); bi=ni;
+    if (floors>=4 && year>0 && year<1940 && wall!==6){ const r=rings[0]; for (let j=0;j<r.length;j+=2){ const X=(r[j]-bounds[0])*sx, Y=(r[j+1]-bounds[1])*sz; if (j===0) fronts.moveTo(X,Y); else fronts.lineTo(X,Y); } fronts.closePath(); } }
+  ctx.stroke(fronts); ctx.filter='none';
+  ctx.globalCompositeOperation='source-over';
   ctx.globalCompositeOperation='destination-out'; ctx.fillStyle='#000'; ctx.fill(path(waterRings), 'evenodd');
   ctx.globalCompositeOperation='source-over';
   const tex = new THREE.CanvasTexture(cv); tex.flipY=false; tex.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -1981,7 +2087,7 @@ const aoMat = mkPass(`uniform sampler2D tDepth; uniform vec4 uProj; uniform vec2
     gl_FragColor=vec4(vec3(clamp(1.0 - ao/12.0*3.0, 0.0, 1.0)),1.0);
   }`, { tDepth:{value:null}, uProj:{value:new THREE.Vector4()}, uPx:{value:new THREE.Vector2()}, uNear:{value:camera.near}, uFar:{value:camera.far} });
 const whiteTex = new THREE.DataTexture(new Uint8Array([255,255,255,255]), 1, 1); whiteTex.needsUpdate = true;
-const compMat = mkPass(`uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tAO; uniform vec2 uAOPx; uniform float uTime; uniform float uFade; uniform float uBars;
+const compMat = mkPass(`uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tAO; uniform vec2 uAOPx; uniform float uExpo; uniform float uTime; uniform float uFade; uniform float uBars;
   uniform float uAspect; uniform float uSunVis; uniform float uFlash; uniform float uGrain; uniform vec2 uSun; varying vec2 vUv;
   vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); }
   float hash(vec2 p){ vec3 p3=fract(vec3(p.xyx)*.1031); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
@@ -2000,7 +2106,7 @@ const compMat = mkPass(`uniform sampler2D tScene; uniform sampler2D tBloom; unif
     vec2 axis=vec2(0.5)-uSun;
     float gh = ghost(uv, vec2(0.5)+axis*0.45, 0.035)*0.10 + ghost(uv, vec2(0.5)+axis*0.9, 0.06)*0.06 + ghost(uv, vec2(0.5)+axis*1.25, 0.02)*0.12;
     col += (vec3(1.0,0.62,0.32)*(streak*0.45+glow*0.3) + vec3(0.55,0.75,1.0)*gh)*uSunVis;
-    col = aces(col*1.1);
+    col = aces(col*uExpo);
     col = pow(col, vec3(1.0/2.2));
     col = col*vec3(1.03,1.0,0.95) + vec3(0.0,0.012,0.022)*(1.0-col);
     col *= 1.0 - smoothstep(0.12, 0.5, r2)*0.42;
@@ -2009,7 +2115,7 @@ const compMat = mkPass(`uniform sampler2D tScene; uniform sampler2D tBloom; unif
     col *= uFade;
     if (uv.y<uBars || uv.y>1.0-uBars) col=vec3(0.0);
     gl_FragColor=vec4(col,1.0);
-  }`, { tScene:{value:null}, tBloom:{value:null}, tAO:{value:whiteTex}, uAOPx:{value:new THREE.Vector2()}, uTime:{value:0}, uFade:{value:0}, uBars:{value:0}, uAspect:{value:1}, uSunVis:{value:0}, uFlash:{value:0}, uGrain:{value:reduceMotion?0.0:0.03}, uSun:{value:new THREE.Vector2(-5,-5)} });
+  }`, { tScene:{value:null}, tBloom:{value:null}, tAO:{value:whiteTex}, uAOPx:{value:new THREE.Vector2()}, uTime:{value:0}, uFade:{value:0}, uBars:{value:0}, uAspect:{value:1}, uSunVis:{value:0}, uFlash:{value:0}, uGrain:{value:reduceMotion?0.0:0.03}, uSun:{value:new THREE.Vector2(-5,-5)}, uExpo:{value:1.1} });
 
 function fsPass(mat, target){ fsMesh.material=mat; renderer.setRenderTarget(target); renderer.render(fsScene, fsCam); }
 const rtOpts = (depth) => ({ type:THREE.HalfFloatType, minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, depthBuffer:depth });
@@ -2121,6 +2227,20 @@ function setSound(on){
   if (AC){ if (AC.state==='suspended') AC.resume(); master.gain.setTargetAtTime(on?1:0, AC.currentTime, 0.05); }
 }
 $('snd').addEventListener('click', () => setSound(!soundOn));
+// Night mode: the same lap after dark, lamps and windows lit. N toggles it; the city eases over in about two seconds.
+let nightOn = store.get('copenaerie-night')==='on', night = nightOn ? 1 : 0;
+const SUN_DAY = new V3(1.0,0.72,0.46).multiplyScalar(3.1), SUN_NIGHT = new V3(0.32,0.4,0.62).multiplyScalar(0.45);
+function setNight(on){
+  nightOn=on; store.set('copenaerie-night', on?'on':'off');
+  $('nite').textContent = on ? 'Night' : 'Dusk'; $('nite').setAttribute('aria-pressed', on?'true':'false');
+}
+function updateNight(dt){
+  night += ((nightOn?1:0) - night)*Math.min(1, dt*1.6);
+  U.uNight.value=night; U.uSunCol.value.copy(SUN_DAY).lerp(SUN_NIGHT, night);
+  compMat.uniforms.uExpo.value=1.1+0.35*night;
+}
+$('nite').addEventListener('click', () => setNight(!nightOn));
+setNight(nightOn);
 setSound(soundOn); // label only; audio starts on first click
 
 /* ---------------------------------------------------------------- state */
@@ -2260,6 +2380,7 @@ addEventListener('keydown', e => {
   if ((e.code==='Enter'||e.code==='Space') && state==='attract' && e.target.tagName!=='BUTTON') startCountdown();
   if (e.code==='Escape' && (state==='play'||state==='countdown')) startAttract(false);
   if (e.code==='KeyM') setSound(!soundOn);
+  if (e.code==='KeyN') setNight(!nightOn);
 });
 addEventListener('keyup', e => { keys[e.code]=false; });
 addEventListener('blur', () => { for (const k in keys) keys[k]=false; touch.id=null; });
@@ -2495,7 +2616,7 @@ function updateSun(dt){
   }
   sunVis += (target-sunVis)*damp(8,dt);
   compMat.uniforms.uSun.value.set(_s.x*0.5+0.5, _s.y*0.5+0.5);
-  compMat.uniforms.uSunVis.value=sunVis;
+  compMat.uniforms.uSunVis.value=sunVis*(1-night);
 }
 
 let barsCur=0;
@@ -2555,7 +2676,7 @@ function frame(dt, draw){
   if (hintTimer>0){ hintTimer-=dt; if (hintTimer<=0) $('hint').classList.add('off'); }
   flash=Math.max(0,flash-dt*2.2);
   compMat.uniforms.uFade.value=fade; compMat.uniforms.uFlash.value=flash;
-  updateGates(dt); updateTrails(); updateBars(dt); updateSun(dt); updateAudio(); updateHud(); updatePhotos(dt); updateMovers();
+  updateGates(dt); updateTrails(); updateBars(dt); updateSun(dt); updateAudio(); updateHud(); updatePhotos(dt); updateMovers(); updateNight(dt);
   if (draw) render();
 }
 

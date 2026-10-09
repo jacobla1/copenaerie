@@ -31,4 +31,6 @@ echo "overpass: bridges"
 curl -sS -m 180 -A "$UA" --data-urlencode "data=[out:json][timeout:120];(way[\"bridge\"][\"bridge\"!=\"no\"]($OSM_BBOX);way[\"man_made\"=\"bridge\"]($OSM_BBOX);relation[\"man_made\"=\"bridge\"]($OSM_BBOX););out body geom;" https://overpass-api.de/api/interpreter -o osm_bridges.json
 echo "overpass: streets (for the lamps hung over them)"
 curl -sS -m 180 -A "$UA" --data-urlencode "data=[out:json][timeout:120];way[\"highway\"~\"^(primary|secondary|tertiary|residential|unclassified|living_street|pedestrian)$\"]($OSM_BBOX);out tags geom;" https://overpass-api.de/api/interpreter -o osm_streets.json
+echo "overpass: squares, pedestrian areas, parking and bicycle parking"
+curl -sS -m 180 -A "$UA" --data-urlencode "data=[out:json][timeout:120];(way[\"place\"=\"square\"]($OSM_BBOX);relation[\"place\"=\"square\"]($OSM_BBOX);way[\"highway\"=\"pedestrian\"][\"area\"=\"yes\"]($OSM_BBOX);relation[\"highway\"=\"pedestrian\"]($OSM_BBOX);way[\"area:highway\"]($OSM_BBOX);way[\"amenity\"=\"parking\"]($OSM_BBOX);nwr[\"amenity\"=\"bicycle_parking\"]($OSM_BBOX);way[\"man_made\"=\"quay\"]($OSM_BBOX););out body geom;" https://overpass-api.de/api/interpreter -o osm_areas.json
 echo done
