@@ -231,6 +231,7 @@ const HAND = [
   { id:'rund',     x:-507.7, z:-114.0, drop:9,   skip:8.6, hide:8 },
   { id:'slotskirke', x:-256.6, z:351.6, drop:14, skip:11.5 },
   { id:'holmens',  x:11.6,   z:387.3,  drop:6,   skip:3.2 },
+  { id:'kgldome',  x:162.7,  z:81.9,   drop:0,   skip:25 },
 ];
 const hand = {};
 for (const h of HAND){

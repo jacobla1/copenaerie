@@ -1899,6 +1899,7 @@ function buildLandmarks(){
   if (H.slotskirke) buildSlotsholmen(H.slotskirke);
   if (H.teater) buildTeater(H.teater);
   if (H.holmens) buildHolmens(H.holmens);
+  if (H.kgldome) buildTeaterDome(H.kgldome);
   if (H.natbank) buildNatbank(H.natbank);
   if (H.glass) for (const g of H.glass){ const r=new Float32Array(g), T=tileFor(...centroid(r)); walls(T, ringArea(r)<0 ? insetRing(r, 0.15) : insetRing(r, -0.15), GROUND, GROUND+4.4, [34,42,48], 3, 0.2, 4.4, 1); }
 }
@@ -1938,6 +1939,35 @@ function buildNatbank(N){
     cap(T, [courts[i]], y0, [150,150,150], 17, 0); });
   rasterFill([low], j=>{ const v=Math.round((G0+N.lowH)*10); if (v>H2[j]) H2[j]=v; });
   rasterFill([blk], j=>{ const v=Math.round(yt*10); if (v>H2[j]) H2[j]=v; });
+}
+// Det Kongelige Teater's dome over the auditorium, measured from the laser scan: a horseshoe 31 m across, rounded
+// toward Kongens Nytorv, on a pale drum with round windows; ribbed grey metal rising from 22 m to a flat crown at 34.4 m
+function buildTeaterDome([x, z]){
+  const T=tileFor(x,z), G0=GROUND, ux=0.3933, uz=0.9194, vx=-uz, vz=ux, R=15.5, U0=-12, U1=25;
+  const metal=[150,156,160], metalD=[132,138,142], sand=[214,204,182], P=(u,v,y)=>[x+ux*u+vx*v, y, z+uz*u+vz*v];
+  // one ring of the dome at inset d: the rounded front (17 points), then the straight sides and back in steps
+  const ring=d=>{ const r=R-d, out=[], back=U1-d, ns=12;
+    for (let k=0;k<=16;k++){ const a=Math.PI/2+k/16*Math.PI; out.push([U0+Math.cos(a)*r, Math.sin(a)*r]); }
+    for (let k=1;k<=ns;k++) out.push([U0+(back-U0)*k/ns, -r]);
+    for (let k=1;k<ns;k++) out.push([back, -r+2*r*k/ns]);
+    for (let k=ns;k>=1;k--) out.push([U0+(back-U0)*k/ns, r]);
+    return out; };
+  const prof=[[0,22],[0.6,24.8],[2,26.6],[4,27.9],[6,29.2],[8,30.2],[10,31.2],[12,32.2],[12.3,34.4]];
+  const rings=prof.map(([d])=>ring(d)), n=rings[0].length;
+  for (let k=0;k+1<rings.length;k++){ const A=rings[k], B=rings[k+1], y0=G0+prof[k][1], y1=G0+prof[k+1][1];
+    for (let i=0;i<n;i++){ const j=(i+1)%n, mu=(A[i][0]+A[j][0])/2, mv=(A[i][1]+A[j][1])/2;
+      const ou=mu<U0 ? mu-U0 : mu>U1-prof[k][0]-0.01 ? 1 : 0, ov=mu<U0 ? mv : (mu>U1-prof[k][0]-0.01 ? 0 : mv), ol=Math.hypot(ou,ov)||1;
+      const want=[(ux*ou+vx*ov)/ol, 1, (uz*ou+vz*ov)/ol];
+      quad(T, [P(A[i][0],A[i][1],y0), P(A[j][0],A[j][1],y0), P(B[j][0],B[j][1],y1), P(B[i][0],B[i][1],y1)], want, i%2 ? metal : metalD, 14, 0); } }
+  const top=rings[rings.length-1], tr=new Float32Array(top.flatMap(([u,v])=>{ const q=P(u,v,0); return [q[0],q[2]]; }));
+  cap(T, [ringArea(tr)<0 ? tr : new Float32Array(Array.from({length:tr.length/2},(_,i)=>[tr[tr.length-2-2*i],tr[tr.length-1-2*i]]).flat())], G0+34.4, [170,174,176], 14, 0);
+  // the drum below the dome, with round windows around the front
+  const b0=ring(-0.15), br=new Float32Array(b0.flatMap(([u,v])=>{ const q=P(u,v,0); return [q[0],q[2]]; }));
+  walls(T, ringArea(br)>0 ? br : new Float32Array(Array.from({length:br.length/2},(_,i)=>[br[br.length-2-2*i],br[br.length-1-2*i]]).flat()), G0+19.2, G0+22.2, sand, 13, 0.3, 4, 0);
+  for (let k=1;k<16;k+=2){ const a=Math.PI/2+k/16*Math.PI, cu=Math.cos(a), cv=Math.sin(a), q=P(U0+cu*(R-0.15), cv*(R-0.15), 0);
+    const nx=ux*cu+vx*cv, nz=uz*cu+vz*cv; disc(T, q[0], G0+20.7, q[2], nx, nz, 0.75, [222,214,196], 0.06); disc(T, q[0], G0+20.7, q[2], nx, nz, 0.55, [40,40,44], 0.1); }
+  rasterFill([tr], j=>{ const v=Math.round((G0+34.4)*10); if (v>H2[j]) H2[j]=v; });
+  rasterFill([br], j=>{ const v=Math.round((G0+28)*10); if (v>H2[j]) H2[j]=v; });
 }
 // Det Kongelige Teater's front on Kongens Nytorv (Vilhelm Dahlerup, 1874): five arched doors, the loggia of three tall
 // arches between paired columns, a cornice, and Holberg and Oehlenschläger seated either side of the steps

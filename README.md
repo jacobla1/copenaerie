@@ -53,7 +53,7 @@ Roofs carry about 17,000 chimneys, found where the raw laser scan stands well ab
 - **Knippelsbro:** its two control towers.
 - **Amalienborg:** Frederik V on horseback.
 - **Christiansborg:** the palace in dark granite under its steep roofs from the laser scan, the tower's granite shaft with its column of windows, Slotskirken's drum and low dome and its portico of four columns, and on Christiansborg Slotsplads the arc of granite bollards and Frederik VII on horseback.
-- **Det Kongelige Teater:** the sandstone front on Kongens Nytorv with five arched doors, the loggia of three arches between paired columns, and Holberg and Oehlenschläger by the steps.
+- **Det Kongelige Teater:** the sandstone front on Kongens Nytorv with five arched doors, the loggia of three arches between paired columns, and Holberg and Oehlenschläger by the steps; behind it the ribbed grey dome over the auditorium, a horseshoe 31 m across with its flat crown at 34 m, measured from the laser scan.
 - **Skuespilhuset:** near-black brick over a glazed ground floor, with its stage tower in the same brick.
 - **Holmens Kirke:** red brick under slate, with its copper flèche on the crossing fitted to the laser scan.
 - **Amalienborg:** the four palaces in pale stone; OpenStreetMap's untagged parts no longer get random colours.
