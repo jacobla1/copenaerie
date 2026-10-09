@@ -229,6 +229,7 @@ const HAND = [
   { id:'chborg',   x:-189.0, z:442.8,  drop:12,  skip:9.5 },
   { id:'cityhall', x:-810.6, z:547.5,  drop:6.5, skip:6.5 },
   { id:'rund',     x:-507.7, z:-114.0, drop:9,   skip:8.6, hide:8 },
+  { id:'slotskirke', x:-256.6, z:351.6, drop:14, skip:11.5 },
 ];
 const hand = {};
 for (const h of HAND){
@@ -244,6 +245,32 @@ for (const h of HAND){
     if (h.hide && d<h.hide){ b.wall=96; b.noFacade=true; }
     else if (h.body && d<h.body.r && Math.abs(b.A)>h.body.minA){ b.wall=h.body.wall; b.colW=h.body.colour; b.noFacade=true; }
   }
+}
+// Christiansborg's palace is dark grey granite and stone, and the oblique photos are pixelated over parts of it and of
+// Slotskirken, so both take a set colour instead of the photo colours. The palace gets its five rows of windows.
+{
+  const p=blds.find(b=>Math.hypot(b.cx+210.6, b.cz-459.1)<30 && Math.abs(b.A)>8000);
+  if (p){
+    p.colW=0x403c39; p.noFacade=true; p.floors=5;
+    // OSM's parts over the palace are flat blocks up to 39 m standing over the roof: they go, so the laser scan gives
+    // the roofs. The window rows keep the gutter height from kbhkort.
+    const r=p.rings[0], pip=(x,z)=>{ let c=false; for (let i=0,j=r.length-1;i<r.length;j=i++){ const a=r[i], b=r[j]; if ((a[1]>z)!==(b[1]>z) && x<(b[0]-a[0])*(z-a[1])/(b[1]-a[1])+a[0]) c=!c; } return c; };
+    const onPalace=l=>l.r.filter(q=>pip(q[0],q[1])).length>=l.r.length/2;   // most of its corners on the palace (the
+    for (let i=lms.length-1; i>=0; i--){ const [cx,cz]=centroid(lms[i].r); if (onPalace(lms[i]) && Math.hypot(cx+189, cz-442.8)>12) lms.splice(i,1); }   // big one wraps the courtyard)
+    p.keepH=true;
+    // its steep roofs are drawn in one dark colour: the aerial photo, seen from straight above, smears down their sides
+    (hand.roofCol=hand.roofCol||[]).push([+p.cx.toFixed(1), +p.cz.toFixed(1), 0x77757a]);
+  }
+  for (const b of blds) if (Math.hypot(b.cx+256.2, b.cz-353.2)<6 || Math.hypot(b.cx+222.9, b.cz-371.5)<6){ b.colW=0xdcd3c4; b.noFacade=true; }
+}
+// Det Kongelige Teater (Gamle Scene, 1874) is pale sandstone; Skuespilhuset (2008) is near-black brick over a glazed
+// ground floor, with its stage tower in the same brick; its laser roof and tower are drawn in one grey, as the aerial
+// photo smears down the tower's sides.
+{
+  const kt=blds.find(b=>Math.hypot(b.cx-160.4, b.cz-70.6)<12 && Math.abs(Math.abs(b.A)-3139)<200);
+  if (kt){ kt.colW=0xc9b896; kt.noFacade=true; hand.teater=[147.35, 40.9, Math.atan2(-9.8, 25.5)]; }
+  const sh=blds.find(b=>b.year===2007 && Math.abs(Math.abs(b.A)-6744)<300 && Math.hypot(b.cx-685, b.cz+33)<40);
+  if (sh){ sh.colW=0x3b3330; sh.noFacade=true; (hand.roofCol=hand.roofCol||[]).push([+sh.cx.toFixed(1), +sh.cz.toFixed(1), 0x6a6866]); hand.glass=[sh.rings[0].flat().map(v=>+v.toFixed(1))]; }
 }
 // Børsen, the 1620s exchange, burnt in April 2024 and stands under a white restoration tent in the 2025 laser scan and
 // photos. It is modelled by hand as it stood before the fire, on its footprint from kbhkort: centre, length, width,
@@ -331,11 +358,12 @@ if (fs.existsSync(path.join(DK, 'ndsm.json'))){
   roofs = blds.map(b => {
     if (b.boat) return null;
     const r = roofFor(G, b.rings, skip); if (!r) return null;
+    if (b.keepH) for (const q of r.pts) q[2]=Math.max(q[2], b.h);   // nothing on the palace sits below its gutters
     // the collision/course raster follows the real roof surface
     let lo=Infinity; for (const [s,e] of r.rings) for (let k=s;k<e;k++) lo=Math.min(lo, r.pts[k][2]);
     fillPoly(b.rings, i=>{ HR[i]=lo; });
     for (const t of r.tris) triRaster(r.pts[t[0]], r.pts[t[1]], r.pts[t[2]], (i,h)=>{ if (h>HR[i]) HR[i]=h; });
-    b.h = Math.max(2, lo);
+    if (!b.keepH) b.h = Math.max(2, lo);
     nt+=r.tris.length; np+=r.pts.length; return r;
   });
   for (const l of lms) fillPoly([l.r], i=>{ const v=l.shape?l.eave+(l.top-l.eave)*0.5:l.top; if (v>HR[i]) HR[i]=v; });
