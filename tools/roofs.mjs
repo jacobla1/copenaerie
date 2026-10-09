@@ -65,6 +65,7 @@ export function roofFor(G, rings, skip){
   // the scan's ripple so roof planes come out as planes
   const raw = new Float32Array(W * H);
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) raw[r * W + c] = G.a[(r0 + r) * G.w + c0 + c] / 100;
+  const orig = raw.slice();
   const hgt = new Float32Array(W * H), nb = new Float32Array(9);
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++){
     let k = 0;
@@ -116,6 +117,10 @@ export function roofFor(G, rings, skip){
         const fi = Math.min(Math.max(f, e / L), 1 - e / L); // stay off the corners
         s.push([f * L, at(a[0] + (b[0] - a[0]) * fi + nx * INSET, a[1] + (b[1] - a[1]) * fi + nz * INSET), x, z]);
       }
+      // a running median over 5 m keeps steps between houses but drops dormers and chimneys standing near the eave,
+      // which would otherwise give the wall a saw-tooth top
+      const sm = s.map((p, k) => median(s.slice(Math.max(0, k - 2), k + 3).map(q => q[1])));
+      s.forEach((p, k) => { p[1] = sm[k]; });
       const keep = dpIdx(s, opts.tol);
       // keep a point at least every 8 m, so a long facade can change colour from house to house
       for (let k = 1, last = 0; k < s.length; k++){ if (keep[k]) last = k; else if (s[k][0] - s[last][0] >= 8){ keep[k] = 1; last = k; } }
@@ -156,5 +161,38 @@ export function roofFor(G, rings, skip){
     const add = [...best.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxPts - pts.length);
     for (const [i] of add){ const r = Math.floor(i / W), c = i % W; pts.push([cx(c), cz(r), hgt[i]]); }
   }
-  return { pts, tris, rings: ringIdx, median: med };
+  return { pts, tris, rings: ringIdx, median: med, chims: chimneys(orig, hgt, innerMask, W, H, cx, cz, rings) };
+}
+
+// Chimneys: the median filter above removes anything a few cells across, so a chimney shows as a small blob where
+// the raw scan stands well above the filtered surface. Returns [x, z, base, top, w, d, angle] per chimney, the box
+// turned to the building's longest wall.
+function chimneys(orig, hgt, mask, W, H, cx, cz, rings){
+  const ex = i => orig[i] - hgt[i], seen = new Uint8Array(W * H), out = [];
+  let ang = 0, best = 0; const o = rings[0];
+  for (let i = 0; i < o.length; i++){ const a = o[i], b = o[(i + 1) % o.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L > best){ best = L; ang = Math.atan2(b[1] - a[1], b[0] - a[0]); } }
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  for (let i0 = 0; i0 < W * H; i0++){
+    if (seen[i0] || !mask[i0] || ex(i0) < 0.7) continue;
+    const comp = [], st = [i0]; seen[i0] = 1;
+    while (st.length){
+      const i = st.pop(); comp.push(i); if (comp.length > 40) break;
+      const r = Math.floor(i / W), c = i % W;
+      for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]){
+        const rr = r + dr, cc = c + dc; if (rr < 0 || cc < 0 || rr >= H || cc >= W) continue;
+        const j = rr * W + cc; if (!seen[j] && mask[j] && ex(j) >= 0.7){ seen[j] = 1; st.push(j); }
+      }
+    }
+    if (comp.length < 2 || comp.length > 25) continue;
+    let peak = 0, sx = 0, sz = 0, lo = Infinity; const tops = [];
+    for (const i of comp){ peak = Math.max(peak, ex(i)); const x = cx(i % W), z = cz(Math.floor(i / W)); sx += x; sz += z; lo = Math.min(lo, hgt[i]); tops.push(orig[i]); }
+    if (peak < 1.1) continue;
+    const mx = sx / comp.length, mz = sz / comp.length;
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const i of comp){ const x = cx(i % W) - mx, z = cz(Math.floor(i / W)) - mz, u = x * ca + z * sa, v = -x * sa + z * ca; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+    tops.sort((a, b) => a - b);
+    const w = Math.min(3, Math.max(0.6, u1 - u0 + 0.4)), d = Math.min(3, Math.max(0.6, v1 - v0 + 0.4));
+    out.push([mx, mz, lo - 0.8, tops[Math.floor(tops.length * 0.75)], w, d, ang]);
+  }
+  return out;
 }
