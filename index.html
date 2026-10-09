@@ -246,6 +246,7 @@ const PHOTO = `uniform sampler2D uOv; uniform vec4 uOvB; uniform sampler2D uTex;
   vec3 photoRaw(vec2 xz){
     vec2 t = (xz - uTexB.xy)/(uTexB.zw - uTexB.xy);
     vec3 hi = texture2D(uTex, t).rgb, lo = texture2D(uOv, (xz - uOvB.xy)/(uOvB.zw - uOvB.xy)).rgb;
+    hi = clamp(hi + (hi - texture2D(uTex, t, 1.6).rgb)*0.7, 0.0, 1.0);  // unsharp mask: crisper kerbs, crossings and markings
     float on = uTexOn * step(0.0, t.x) * step(0.0, t.y) * step(t.x, 1.0) * step(t.y, 1.0);
     return mix(lo, hi, on);
   }
@@ -520,6 +521,7 @@ const cityDepth = new THREE.ShaderMaterial({ vertexShader:`void main(){ gl_Posit
 
 const groundMat = new THREE.ShaderMaterial({
   uniforms: Object.assign({ uMap:{value:null}, uAO:{value:null}, uB:{value:new THREE.Vector4()} }, U),
+  extensions:{ derivatives:true },
   vertexShader: VS_WORLD,
   fragmentShader: COMMON + PHOTO + `uniform sampler2D uMap; uniform sampler2D uAO; uniform vec4 uB; varying vec3 vW;
     void main(){
@@ -527,6 +529,18 @@ const groundMat = new THREE.ShaderMaterial({
       vec4 m = texture2D(uMap, uv);
       if (m.a < 0.5) discard;
       vec3 alb = photo(vW.xz)*vec3(0.74,0.69,0.64); // a touch darker and warmer than the midday photo, for evening
+      // cobbles on squares and quays: round setts from a cell pattern, fading out before they would shimmer
+      float paved = 1.0 - m.g, fw = fwidth(vW.x)*7.0;
+      if (paved > 0.01 && fw < 1.0){
+        vec2 q = vW.xz/0.15, iq = floor(q), fq = fract(q); float d1 = 8.0, d2 = 8.0, id = 0.0;
+        for (int j=-1;j<=1;j++) for (int i=-1;i<=1;i++){
+          vec2 g = vec2(float(i), float(j)), o = vec2(hash12(iq+g), hash12(iq+g+17.3))*0.8+0.1;
+          float d = length(g + o - fq);
+          if (d < d1){ d2 = d1; d1 = d; id = hash12(iq+g+5.1); } else if (d < d2) d2 = d;
+        }
+        float stone = smoothstep(0.03, 0.14, d2 - d1);
+        alb *= mix(1.0, (0.62 + 0.38*stone)*(0.85 + 0.3*id), paved*(1.0 - smoothstep(0.4, 1.0, fw)));
+      }
       float ao = texture2D(uAO, uv).r;
       vec3 n = vec3(0.0,1.0,0.0);
       float sh = shadowAt(vW, n);
@@ -820,6 +834,7 @@ function updatePhotos(dt){
   const px=camera.position.x+_f.x*120, pz=camera.position.z+_f.z*120;
   const near=[...PT.values()].map(t=>[t, Math.hypot(t.cx-px, t.cz-pz)]).filter(o=>o[1]<1000).sort((a,b)=>a[1]-b[1]).slice(0, PHOTO_MAX).map(o=>o[0]);
   photoWant=new Set(near);
+  for (const t of NEAR){ const v=Math.hypot(t.cx-camera.position.x, t.cz-camera.position.z) < 620; t.m.visible=t.sm.visible=v; }
   for (const t of PT.values()) if (t.tex && !photoWant.has(t)) dropPhoto(t);
   let busy=0; for (const t of PT.values()) if (t.loading) busy++;
   for (const t of near){ if (busy>=2) break; if (t.tex || t.loading || t.failed) continue; busy++; loadPhoto(t); }
@@ -961,6 +976,10 @@ function rasterTri(ax,az,ay, bx,bz,by, cx,cz,cy){
 }
 
 function tileFor(x,z){ const k=Math.floor((x-bounds[0])/TILE)+','+Math.floor((z-bounds[1])/TILE); let t=tiles.get(k); if (!t){ t=new Tile(); tiles.set(k,t); } return t; }
+// Street-level detail (kerbs, parked cars, bikes, posts, bollards) goes into separate meshes per tile that are only
+// drawn within a few hundred metres of the camera: far off it is smaller than a pixel.
+const ntiles = new Map(), NEAR = [];
+function nearTileFor(x,z){ const k=Math.floor((x-bounds[0])/TILE)+','+Math.floor((z-bounds[1])/TILE); let t=ntiles.get(k); if (!t){ t=new Tile(); ntiles.set(k,t); } return t; }
 function decodeRings(a, i){
   const nr=a[i++], rings=[];
   for (let k=0;k<nr;k++){ const n=a[i++], r=new Float32Array(n*2); let x=0,z=0; for (let j=0;j<n;j++){ x+=a[i++]; z+=a[i++]; r[j*2]=x/10; r[j*2+1]=z/10; } rings.push(r); }
@@ -1130,9 +1149,11 @@ async function generate(){
   buildSpires();
   buildLamps();
   buildChimneys();
+  setLoad('Kerbs, cars and bikes', 0.62); await tick();
+  buildStreets();
 
   setLoad('Quays and bridges', 0.64); await tick();
-  const granite=[118,112,104];
+  const granite=[118,112,104], coping=[150,146,138]; let bollardCarry=7;
   for (const rings of waterRings){
     rings.forEach((r,k) => {
       const a=ringArea(r); let rr=r;
@@ -1146,7 +1167,18 @@ async function generate(){
         const mx=(ax+bx)/2, mz=(az+bz)/2, ox=(bz-az)/L*1.2, oz=-(bx-ax)/L*1.2;
         if (isWater(mx+ox,mz+oz) && isWater(mx-ox,mz-oz)) continue; // a cut where the water layer stops at a bridge face
         const T=tileFor(mx,mz);
-        walls(T, new Float32Array([ax,az,bx,bz]), -0.4, GROUND, granite, 15, 0, 3, 0);
+        walls(T, new Float32Array([ax,az,bx,bz]), -0.4, GROUND+0.06, granite, 15, 0, 3, 0);
+        // granite coping along the edge, and iron bollards every 14 m where the quay is open
+        const ix=-(bz-az)/L*0.55, iz=(bx-ax)/L*0.55, y=GROUND+0.06;
+        const c0=T.vert(ax,y,az, 0,1,0, coping, 0,0,3,0, 15,0.5,0), c1=T.vert(bx,y,bz, 0,1,0, coping, 0,0,3,0, 15,0.5,0);
+        const c2=T.vert(bx+ix,y,bz+iz, 0,1,0, coping, 0,0,3,0, 15,0.5,0), c3=T.vert(ax+ix,y,az+iz, 0,1,0, coping, 0,0,3,0, 15,0.5,0);
+        if ((bx-ax)*iz-(bz-az)*ix < 0){ T.tri(c0,c1,c2); T.tri(c0,c2,c3); } else { T.tri(c0,c2,c1); T.tri(c0,c3,c2); }
+        for (let d=(bollardCarry%14); d<L; d+=14){
+          const px=ax+(bx-ax)*d/L+ix*0.9, pz=az+(bz-az)*d/L+iz*0.9;
+          if (!openGround(px,pz)) continue;
+          bollard(nearTileFor(px,pz), px, pz);
+        }
+        bollardCarry=(bollardCarry-L%14+14)%14;
       }
     });
   }
@@ -1163,6 +1195,16 @@ async function generate(){
     g.index.onUpload(function(){ this.array = null; });
   }
   tiles.clear(); // drop the growable build buffers
+  for (const [k,T] of ntiles){
+    if (!T.n) continue;
+    const g=T.mesh(), [tx,tz]=k.split(',').map(Number);
+    const m=new THREE.Mesh(g, cityMatFor(tx,tz)), sm=new THREE.Mesh(g, cityDepth);
+    m.visible=sm.visible=false; scene.add(m); shadowScene.add(sm);
+    NEAR.push({ m, sm, cx:bounds[0]+(tx+0.5)*TILE, cz:bounds[1]+(tz+0.5)*TILE });
+    for (const name in g.attributes) g.attributes[name].onUpload(function(){ this.array = null; });
+    g.index.onUpload(function(){ this.array = null; });
+  }
+  ntiles.clear();
 
   setLoad('Painting the streets', 0.7); await tick();
   paintGround(waterRings);
@@ -1285,6 +1327,87 @@ function buildSpires(){
   }
 }
 
+// Open street at (x,z): no building, not water.
+function openGround(x, z){
+  const ix=Math.floor((x-bounds[0])/HCELL), iz=Math.floor((z-bounds[1])/HCELL);
+  if (ix<0||iz<0||ix>=HW||iz>=HH) return false;
+  return !OWN[iz*HW+ix] && H2[iz*HW+ix]>0 && !isWater(x,z);
+}
+function box(T, x, z, a, hl, hw, y0, y1, c, kind){
+  const ca=Math.cos(a), sa=Math.sin(a), P=(u,v)=>[x+u*ca-v*sa, z+u*sa+v*ca];
+  const r=new Float32Array([...P(-hl,-hw),...P(hl,-hw),...P(hl,hw),...P(-hl,hw)]);
+  if (ringArea(r)<0) r.set([...P(-hl,hw),...P(hl,hw),...P(hl,-hw),...P(-hl,-hw)]);
+  walls(T, r, y0, y1, c, kind||19, 0, 3, 0); cap(T, [r], y1, c, kind||19, 0);
+}
+function bollard(T, x, z){
+  const iron=[34,35,37], n=8, r=new Float32Array(n*2), r2=new Float32Array(n*2);
+  for (let k=0;k<n;k++){ const a=-k/n*Math.PI*2; r[k*2]=x+Math.cos(a)*0.16; r[k*2+1]=z+Math.sin(a)*0.16; r2[k*2]=x+Math.cos(a)*0.2; r2[k*2+1]=z+Math.sin(a)*0.2; }
+  if (ringArea(r)<0){ r.reverse(); r2.reverse(); for (const q of [r,r2]) for (let k=0;k<n;k++){ const t=q[k*2]; q[k*2]=q[k*2+1]; q[k*2+1]=t; } }
+  walls(T, r, GROUND, GROUND+0.55, iron, 19, 0, 3, 0);
+  walls(T, r2, GROUND+0.55, GROUND+0.68, iron, 19, 0, 3, 0); cap(T, [r2], GROUND+0.68, iron, 19, 0);
+}
+const CAR_COLS=[0xe8e8e6,0xd9dadb,0x2a2b2e,0x8d9196,0x5b6068,0x1f2f4f,0x7a1f1f,0x3b4a3a,0xb8b2a3,0x16171a,0xc7c9cc,0x355c8a].map(hex3);
+// Kerbs (GeoDanmark), parked cars and bicycles (OpenStreetMap parking, placed in tools/build.mjs), street posts.
+function buildStreets(){
+  const granite=[138,135,128];
+  if (city.kerb) for (const l of decodeList(city.kerb)){
+    const p=l[0];
+    for (let i=0;i+3<p.length;i+=2){
+      const ax=p[i], az=p[i+1], bx=p[i+2], bz=p[i+3], L=Math.hypot(bx-ax,bz-az); if (L<0.05) continue;
+      // the road lies on the right: (nx,nz) points into it; the kerb stone sits on the pavement side
+      const nx=(bz-az)/L, nz=-(bx-ax)/L, w=0.3, h=0.12, T=nearTileFor((ax+bx)/2,(az+bz)/2);
+      walls(T, new Float32Array([ax,az,bx,bz]), GROUND, GROUND+h, shade(granite,0.8), 19, 0, 3, 0);
+      const t0=T.vert(ax,GROUND+h,az, 0,1,0, granite, 0,0,3,0, 19,0,0), t1=T.vert(bx,GROUND+h,bz, 0,1,0, granite, 0,0,3,0, 19,0,0);
+      const t2=T.vert(bx-nx*w,GROUND+h,bz-nz*w, 0,1,0, granite, 0,0,3,0, 19,0,0), t3=T.vert(ax-nx*w,GROUND+h,az-nz*w, 0,1,0, granite, 0,0,3,0, 19,0,0);
+      T.tri(t0,t2,t1); T.tri(t0,t3,t2);
+    }
+  }
+  const C=city.cars||[];
+  for (let i=0;i<C.length;i+=3){
+    const x=C[i]/10, z=C[i+1]/10, a=C[i+2]/1000, T=nearTileFor(x,z), r=hash(x*0.71+z*1.37);
+    const col=CAR_COLS[Math.floor(r*CAR_COLS.length)], len=2.05+hash(r*9.1)*0.3, glass=[30,36,44];
+    box(T, x, z, a, len-0.3, 0.8, GROUND+0.06, GROUND+0.34, [20,20,22]);             // wheels and sills
+    box(T, x, z, a, len, 0.87, GROUND+0.34, GROUND+0.8, col);                         // body
+    // cabin: sloped windscreen and rear window, narrowing to the roof
+    const ca=Math.cos(a), sa=Math.sin(a), Q=(u,v,y)=>[x+u*ca-v*sa, GROUND+y, z+u*sa+v*ca];
+    const b0=-len*0.62, b1=len*0.32, t0=-len*0.48, t1=len*0.02, bw=0.82, tw=0.68, yb=0.8, yt=1.42;
+    const fwd=[ca,0,sa], side=[-sa,0,ca];
+    quad(T, [Q(b1,-bw,yb), Q(b1,bw,yb), Q(t1,tw,yt), Q(t1,-tw,yt)], [fwd[0],0.8,fwd[2]], glass, 19, 0);
+    quad(T, [Q(b0,bw,yb), Q(b0,-bw,yb), Q(t0,-tw,yt), Q(t0,tw,yt)], [-fwd[0],0.8,-fwd[2]], glass, 19, 0);
+    quad(T, [Q(b0,bw,yb), Q(b1,bw,yb), Q(t1,tw,yt), Q(t0,tw,yt)], [side[0],0.25,side[2]], glass, 19, 0);
+    quad(T, [Q(b1,-bw,yb), Q(b0,-bw,yb), Q(t0,-tw,yt), Q(t1,-tw,yt)], [-side[0],0.25,-side[2]], glass, 19, 0);
+    quad(T, [Q(t0,-tw,yt), Q(t1,-tw,yt), Q(t1,tw,yt), Q(t0,tw,yt)], [0,1,0], col, 19, 0);
+  }
+  const K=city.bikes||[];
+  for (let i=0;i<K.length;i+=3){
+    const x=K[i]/10, z=K[i+1]/10, a=K[i+2]/1000, T=nearTileFor(x,z), r=hash(x*1.13+z*0.77);
+    const frame=hex3([0x1d1f22,0x2b2d30,0x6b1e1e,0x1f3550,0xd0d0cc,0x2f4a36][Math.floor(r*6)]), tyre=[18,18,19];
+    const ca=Math.cos(a), sa=Math.sin(a), Pt=(u,y)=>[x+ca*u, GROUND+y, z+sa*u], nx=-sa, nz=ca;
+    const quad2=(q,c)=>{ quad(T, q, [nx,0,nz], c, 19, 0); quad(T, [q[3],q[2],q[1],q[0]], [-nx,0,-nz], c, 19, 0); };
+    for (const cu of [-0.55, 0.55]){ // wheels: thin six-sided rings
+      for (let k=0;k<6;k++){ const a0=k/6*Math.PI*2, a1=(k+1)/6*Math.PI*2, R=0.34, r2=0.29;
+        quad2([Pt(cu+Math.cos(a0)*R, 0.34+Math.sin(a0)*R), Pt(cu+Math.cos(a1)*R, 0.34+Math.sin(a1)*R), Pt(cu+Math.cos(a1)*r2, 0.34+Math.sin(a1)*r2), Pt(cu+Math.cos(a0)*r2, 0.34+Math.sin(a0)*r2)], tyre); }
+    }
+    quad2([Pt(-0.55,0.32), Pt(0.42,0.36), Pt(0.42,0.42), Pt(-0.55,0.38)], frame);  // down tube
+    quad2([Pt(-0.2,0.34), Pt(-0.16,0.34), Pt(-0.22,0.86), Pt(-0.27,0.86)], frame);  // seat tube
+    quad2([Pt(-0.22,0.78), Pt(0.42,0.82), Pt(0.42,0.87), Pt(-0.22,0.83)], frame);   // top tube
+    quad2([Pt(0.42,0.34), Pt(0.47,0.34), Pt(0.5,1.0), Pt(0.45,1.0)], frame);         // fork and stem
+    box(T, x+ca*0.48, z+sa*0.48, a+Math.PI/2, 0.3, 0.02, GROUND+0.98, GROUND+1.02, tyre);  // handlebar
+  }
+  const M=city.mast||[];
+  for (let i=0;i<M.length;i+=2){
+    const x=M[i]/10, z=M[i+1]/10, T=nearTileFor(x,z), r=hash(x*0.53+z*0.91);
+    if (r<0.55){ // street light on a pole
+      const h=5.5+r*2; box(T, x, z, 0, 0.07, 0.07, GROUND, GROUND+h, [58,60,62]);
+      box(T, x, z, r*6.28, 0.32, 0.16, GROUND+h, GROUND+h+0.14, [44,46,48]);
+      quad(T, [[x-0.12,GROUND+h-0.01,z-0.12],[x+0.12,GROUND+h-0.01,z-0.12],[x+0.12,GROUND+h-0.01,z+0.12],[x-0.12,GROUND+h-0.01,z+0.12]], [0,-1,0], [255,255,255], 18, 0);
+    } else { // sign or signal post
+      const h=2.6+r; box(T, x, z, 0, 0.05, 0.05, GROUND, GROUND+h, [70,72,74]);
+      box(T, x, z, r*6.28, 0.32, 0.03, GROUND+h-0.7, GROUND+h, r<0.8 ? [28,62,120] : [150,40,34]);
+    }
+  }
+}
+
 // Chimneys found in the laser scan (tools/roofs.mjs): mostly red brick, some yellow brick or rendered, with a dark top.
 const GUTTER=[40,38,36];
 function buildChimneys(){
@@ -1373,8 +1496,11 @@ function paintGround(waterRings){
   const ctx = cv.getContext('2d');
   const sx = S/W, sz = S/D;
   const path = list => { const p=new Path2D(); for (const rings of list) for (const r of rings){ for (let i=0;i<r.length;i+=2){ const X=(r[i]-bounds[0])*sx, Y=(r[i+1]-bounds[1])*sz; if (i===0) p.moveTo(X,Y); else p.lineTo(X,Y); } p.closePath(); } return p; };
-  // colour comes from the aerial photo; this canvas only cuts the water out of the ground
+  // colour comes from the aerial photo; this canvas cuts the water out of the ground (alpha) and marks paved squares,
+  // pedestrian areas and the quays (green 0), which get cobbles up close
   ctx.fillStyle='#fff'; ctx.fillRect(0,0,S,S);
+  ctx.fillStyle='#f0f'; if (city.paved) ctx.fill(path(decodeList(city.paved)), 'nonzero');
+  ctx.strokeStyle='#f0f'; ctx.lineWidth=11*sx; ctx.lineJoin='round'; ctx.stroke(path(waterRings));
   ctx.globalCompositeOperation='destination-out'; ctx.fillStyle='#000'; ctx.fill(path(waterRings), 'evenodd');
   ctx.globalCompositeOperation='source-over';
   const tex = new THREE.CanvasTexture(cv); tex.flipY=false; tex.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -1393,7 +1519,7 @@ function paintGround(waterRings){
   for (let iz=0; bounds[1]+iz*TILE<bounds[3]; iz++) for (let ix=0; bounds[0]+ix*TILE<bounds[2]; ix++){
     const x0=bounds[0]+ix*TILE, z0=bounds[1]+iz*TILE, x1=Math.min(bounds[2], x0+TILE), z1=Math.min(bounds[3], z0+TILE);
     const gg=new THREE.PlaneGeometry(x1-x0, z1-z0, 1, 1); gg.rotateX(-Math.PI/2); gg.translate((x0+x1)/2, GROUND, (z0+z1)/2);
-    const mat=new THREE.ShaderMaterial({ uniforms:Object.assign({}, groundMat.uniforms, photoTile(ix,iz).u), vertexShader:groundMat.vertexShader, fragmentShader:groundMat.fragmentShader });
+    const mat=new THREE.ShaderMaterial({ uniforms:Object.assign({}, groundMat.uniforms, photoTile(ix,iz).u), vertexShader:groundMat.vertexShader, fragmentShader:groundMat.fragmentShader, extensions:{ derivatives:true } });
     groundMesh.add(new THREE.Mesh(gg, mat));
   }
   const og = new THREE.PlaneGeometry(26000, 26000, 1, 1); og.rotateX(-Math.PI/2); og.translate(0, GROUND-0.04, 0);
@@ -2157,7 +2283,7 @@ function loop(now){
   frame(dt, true);
 }
 // #debug: advance the simulation by fixed steps, for capturing stills from a background tab
-if (location.hash==='#debug') window.__dbg = { U, cascades, scene, shadowScene, camera, groundMat, cityMat, waterMat, aoMat, compMat, rtAO, get AP(){ return AP; }, get P(){ return P; },
+if (location.hash==='#debug') window.__dbg = { U, cascades, scene, shadowScene, camera, groundMat, cityMat, waterMat, aoMat, compMat, rtAO, get city(){ return city; }, get AP(){ return AP; }, get P(){ return P; },
   // drop the glider into free flight at p heading along yaw, e.g. to try a bridge
   place(p, yaw){ state='play'; P.done=false; P.pos.set(p[0],p[1],p[2]); P.prev.copy(P.pos); P.yaw=yaw; P.pitch=0; P.turn=0; P.roll=0; P.speed=BASE; P.cruise=BASE; P.grace=0;
     P.fwd.set(Math.sin(yaw),0,Math.cos(yaw)); P.camPos.copy(P.fwd).multiplyScalar(-5.2).add(P.pos); P.camPos.y+=1.5; resetTrails(); },

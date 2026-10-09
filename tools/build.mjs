@@ -378,6 +378,130 @@ if (fs.existsSync(path.join(RAW, 'osm_streets.json'))){
 }
 console.log('street lamps', lamps.length);
 
+/* ------------------------------------------------------------ street detail */
+// Kerbs and masts from GeoDanmark (tools/fetch_geodk.py), squares, parking and bicycle parking from OpenStreetMap.
+// Street centrelines, binned on a 20 m grid, tell each kerb which side the road is on and what kind of street it lines.
+const hash=n=>{ n=Math.sin(n*127.1+311.7)*43758.5453; return n-Math.floor(n); };
+const SG=new Map(), SGC=20, sgKey=(x,z)=>Math.floor(x/SGC)+','+Math.floor(z/SGC);
+if (fs.existsSync(path.join(RAW, 'osm_streets.json'))) load('osm_streets').elements.forEach((e, id) => {
+  if (!e.geometry) return; const hw=(e.tags||{}).highway, pts=e.geometry.map(g=>llW(g.lon,g.lat));
+  for (let i=0;i+1<pts.length;i++){ const a=pts[i], b=pts[i+1], s={ a, b, hw, id };
+    const x0=Math.min(a[0],b[0])-SGC, x1=Math.max(a[0],b[0])+SGC, z0=Math.min(a[1],b[1])-SGC, z1=Math.max(a[1],b[1])+SGC;
+    for (let gx=Math.floor(x0/SGC); gx<=Math.floor(x1/SGC); gx++) for (let gz=Math.floor(z0/SGC); gz<=Math.floor(z1/SGC); gz++){ const k=gx+','+gz; if (!SG.has(k)) SG.set(k,[]); SG.get(k).push(s); } }
+});
+// nearest centreline to (x,z): { d, s, px, pz } or null
+function nearStreet(x, z, maxD, skipId){
+  let best=null;
+  for (const s of SG.get(sgKey(x,z))||[]){
+    if (s.id===skipId) continue;
+    const dx=s.b[0]-s.a[0], dz=s.b[1]-s.a[1], l=dx*dx+dz*dz; let t=l?((x-s.a[0])*dx+(z-s.a[1])*dz)/l:0; t=Math.max(0,Math.min(1,t));
+    const px=s.a[0]+dx*t, pz=s.a[1]+dz*t, d=Math.hypot(px-x, pz-z);
+    if (d<maxD && (!best || d<best.d)) best={ d, s, px, pz };
+  }
+  return best;
+}
+const kerbs=[], masts=[], cars=[], bikes=[], paved=[];
+const freeAt=(x,z)=>hrAt(x,z)<1 && !watAt(x,z);
+const carGrid=new Set(), carKey=(x,z)=>Math.round(x/3)+','+Math.round(z/3);
+function addCar(x, z, a){
+  const k=carKey(x,z); if (carGrid.has(k) || !freeAt(x,z) || !inB(x,z,-20)) return;
+  // keep the whole car on the street
+  const ca=Math.cos(a), sa=Math.sin(a); if (!freeAt(x+ca*2.1, z+sa*2.1) || !freeAt(x-ca*2.1, z-sa*2.1)) return;
+  for (let dx=-1;dx<=1;dx++) for (let dz=-1;dz<=1;dz++) carGrid.add((Math.round(x/3)+dx)+','+(Math.round(z/3)+dz));
+  cars.push([x, z, a]);
+}
+const PARK_ON = new Set(['residential','tertiary','unclassified','secondary']);
+if (fs.existsSync(path.join(DK, 'kerbs.json'))){
+  for (const raw of JSON.parse(fs.readFileSync(path.join(DK, 'kerbs.json'), 'utf8'))){
+    // split where the line runs into a building or the water
+    let run=[];
+    const flush=()=>{ if (run.length>1) kerbs.push(run); run=[]; };
+    for (let i=0;i<raw.length;i++){
+      const p=raw[i]; if (!inB(p[0],p[1],-5)){ flush(); continue; }
+      if (run.length){ const q=run[run.length-1], mx=(p[0]+q[0])/2, mz=(p[1]+q[1])/2; if (!freeAt(mx,mz)){ flush(); } }
+      run.push(p);
+    }
+    flush();
+  }
+  // road on the right of the direction of travel: the normal (dz, -dx) points into the street
+  for (const l of kerbs){
+    let side=0;
+    for (let i=0;i+1<l.length;i++){
+      const a=l[i], b=l[i+1], L=Math.hypot(b[0]-a[0], b[1]-a[1]); if (L<0.1) continue;
+      const mx=(a[0]+b[0])/2, mz=(a[1]+b[1])/2, ns=nearStreet(mx, mz, 25); if (!ns) continue;
+      side += Math.sign(((b[1]-a[1])*(ns.px-mx) - (b[0]-a[0])*(ns.pz-mz))) * L;
+    }
+    if (side<0) l.reverse();
+  }
+  // parallel parking along kerbs of ordinary streets wide enough for it, clear of junctions
+  for (const l of kerbs){
+    let carry=2+hash(l[0][0]*0.37+l[0][1]*0.11)*4;
+    for (let i=0;i+1<l.length;i++){
+      const a=l[i], b=l[i+1], L=Math.hypot(b[0]-a[0], b[1]-a[1]); if (L<0.5){ continue; }
+      const ux=(b[0]-a[0])/L, uz=(b[1]-a[1])/L, nx=uz, nz=-ux;
+      let d=carry;
+      for (; d<L; d+=5.7){
+        const x=a[0]+ux*d+nx*1.15, z=a[1]+uz*d+nz*1.15;
+        if (hash(x*1.7+z*0.3)<0.3) continue;
+        const ns=nearStreet(x, z, 14); if (!ns || !PARK_ON.has(ns.s.hw) || ns.d<3.0) continue;
+        if (nearStreet(x, z, 9, ns.s.id)) continue;  // a junction
+        addCar(x, z, Math.atan2(uz, ux));
+      }
+      carry=d-L;
+    }
+  }
+  for (const m of JSON.parse(fs.readFileSync(path.join(DK, 'masts.json'), 'utf8'))){
+    if (!inB(m[0],m[1],-5) || !freeAt(m[0],m[1])) continue;
+    if (masts.some(q=>Math.abs(q[0]-m[0])<1.2 && Math.abs(q[1]-m[1])<1.2)) continue;
+    masts.push(m);
+  }
+}
+// bicycles: the nearest kerb (or the parking way itself) sets the row's direction; each bike stands across the row
+function kerbDir(x, z){
+  let best=6, ang=null;
+  for (const l of kerbsNear(x, z)) for (let i=0;i+1<l.length;i++){ const d=segDist([x,z], l[i], l[i+1]); if (d<best){ best=d; ang=Math.atan2(l[i+1][1]-l[i][1], l[i+1][0]-l[i][0]); } }
+  return ang;
+}
+const KG=new Map(); for (const l of kerbs){ const seen=new Set(); for (const p of l){ const k=sgKey(p[0],p[1]); if (seen.has(k)) continue; seen.add(k); if (!KG.has(k)) KG.set(k,[]); KG.get(k).push(l); } }
+const kerbsNear=(x,z)=>{ const out=new Set(); for (let dx=-1;dx<=1;dx++) for (let dz=-1;dz<=1;dz++) for (const l of KG.get((Math.floor(x/SGC)+dx)+','+(Math.floor(z/SGC)+dz))||[]) out.add(l); return out; };
+if (fs.existsSync(path.join(RAW, 'osm_areas.json'))){
+  const ringsOf=e=>e.type==='way' && e.geometry ? [e.geometry] : e.type==='relation' && e.members ? joinOuter(e.members) : [];
+  for (const e of load('osm_areas').elements){
+    const t=e.tags||{};
+    if (t.place==='square' || (t.highway==='pedestrian' && (t.area==='yes' || e.type==='relation')) || t['area:highway']==='pedestrian' || t['area:highway']==='footway'){
+      for (const g of ringsOf(e)){ const r=cleanRing(g.map(q=>llW(q.lon,q.lat)), 0.3); if (r && Math.abs(area(r))>30) paved.push([r]); }
+    } else if (t.amenity==='parking' && !/underground|multi-storey|rooftop/.test(t.parking||'')){
+      for (const g of ringsOf(e)){
+        const r=g.map(q=>llW(q.lon,q.lat)); if (r.length<4) continue;
+        // the polygon's own frame: its longest edge
+        let ang=0, bl=0; for (let i=0;i+1<r.length;i++){ const L=Math.hypot(r[i+1][0]-r[i][0], r[i+1][1]-r[i][1]); if (L>bl){ bl=L; ang=Math.atan2(r[i+1][1]-r[i][1], r[i+1][0]-r[i][0]); } }
+        const ca=Math.cos(ang), sa=Math.sin(ang); let u0=Infinity,u1=-Infinity,v0=Infinity,v1=-Infinity;
+        for (const p of r){ const u=p[0]*ca+p[1]*sa, v=-p[0]*sa+p[1]*ca; u0=Math.min(u0,u); u1=Math.max(u1,u); v0=Math.min(v0,v); v1=Math.max(v1,v); }
+        const W=v1-v0, inside=(x,z)=>{ let c=false; for (let i=0,j=r.length-1;i<r.length;j=i++){ const a=r[i], b=r[j]; if ((a[1]>z)!==(b[1]>z) && x<(b[0]-a[0])*(z-a[1])/(b[1]-a[1])+a[0]) c=!c; } return c; };
+        const at=(u,v)=>[u*ca-v*sa, u*sa+v*ca];
+        if (W<4.2){ for (let u=u0+3; u<u1-2.5; u+=5.7){ const [x,z]=at(u,(v0+v1)/2); if (inside(x,z) && hash(x*0.9+z*1.3)>0.2) addCar(x,z,ang); } }
+        else for (let v=v0+2.6; v<v1-2.4; v+=5.2) for (let u=u0+1.4; u<u1-1.2; u+=2.6){ const [x,z]=at(u,v); if (inside(x,z) && hash(x*0.9+z*1.3)>0.25) addCar(x,z,ang+Math.PI/2); }
+      }
+    } else if (t.amenity==='bicycle_parking'){
+      const cap=Math.min(24, Math.max(4, parseInt(t.capacity)||8)), n=Math.ceil(cap*0.6);
+      let line=null;
+      if (e.type==='node') line=[[e.lon, e.lat]].map(([lon,lat])=>llW(lon,lat));
+      else { const g=ringsOf(e)[0]; if (g) line=g.map(q=>llW(q.lon,q.lat)); }
+      if (!line) continue;
+      if (line.length===1){
+        const [x,z]=line[0]; const a=kerbDir(x,z) ?? hash(x+z)*Math.PI;
+        for (let k=0;k<n;k++){ const o=(k-(n-1)/2)*0.65, bx=x+Math.cos(a)*o, bz=z+Math.sin(a)*o; if (freeAt(bx,bz)) bikes.push([bx, bz, a+Math.PI/2+(hash(k+x)-0.5)*0.25]); }
+      } else {
+        // along the mapped stand or around the area's longest side
+        let best=0, A=null, Bp=null; for (let i=0;i+1<line.length;i++){ const L=Math.hypot(line[i+1][0]-line[i][0], line[i+1][1]-line[i][1]); if (L>best){ best=L; A=line[i]; Bp=line[i+1]; } }
+        if (!A) continue; const a=Math.atan2(Bp[1]-A[1], Bp[0]-A[0]), m=Math.min(n, Math.floor(best/0.65));
+        for (let k=0;k<m;k++){ const f=(k+0.5)/m, bx=A[0]+(Bp[0]-A[0])*f, bz=A[1]+(Bp[1]-A[1])*f; if (freeAt(bx,bz)) bikes.push([bx, bz, a+Math.PI/2+(hash(k+bx)-0.5)*0.25]); }
+      }
+    }
+  }
+}
+console.log('kerb lines', kerbs.length, 'masts', masts.length, 'parked cars', cars.length, 'bikes', bikes.length, 'paved areas', paved.length);
+
 const trees=[];
 for (const f of load('automatisk_detekterede_traeer_kk_beta').features){
   const [x,z]=toW(f.geometry.coordinates[0], f.geometry.coordinates[1]); const P=f.properties;
@@ -399,7 +523,9 @@ const TR=[]; for (const t of trees) TR.push(dm(t[0]), dm(t[1]), dm(t[2]), dm(t[3
 // chimneys found in the laser scan (tools/roofs.mjs): x, z, base, top, width, depth in decimetres, angle in milliradians
 const CH=[]; if (roofs) for (const r of roofs) if (r) for (const c of r.chims) CH.push(dm(c[0]), dm(c[1]), dm(c[2]), dm(c[3]), dm(c[4]), dm(c[5]), Math.round(c[6]*1000));
 console.log('chimneys', CH.length/7);
-const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), spans:SP, lamps:LP, trees:TR, chim:CH };
+const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), spans:SP, lamps:LP, trees:TR, chim:CH,
+  kerb:encList(kerbs.map(l=>[l])), mast:masts.flat().map(dm), paved:encList(paved),
+  cars:cars.flatMap(c=>[dm(c[0]), dm(c[1]), Math.round(c[2]*1000)]), bikes:bikes.flatMap(c=>[dm(c[0]), dm(c[1]), Math.round(c[2]*1000)]) };
 const json = JSON.stringify(city);
 fs.writeFileSync(OUT, json);
 
