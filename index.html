@@ -1898,7 +1898,46 @@ function buildLandmarks(){
   rider(571.5, -463.8, Math.atan2(-463.8+560.6, 571.5-336.1), 4.6, [214,210,200], [84,124,108]);
   if (H.slotskirke) buildSlotsholmen(H.slotskirke);
   if (H.teater) buildTeater(H.teater);
+  if (H.holmens) buildHolmens(H.holmens);
+  if (H.natbank) buildNatbank(H.natbank);
   if (H.glass) for (const g of H.glass){ const r=new Float32Array(g), T=tileFor(...centroid(r)); walls(T, ringArea(r)<0 ? insetRing(r, 0.15) : insetRing(r, -0.15), GROUND, GROUND+4.4, [34,42,48], 3, 0.2, 4.4, 1); }
+}
+// Holmens Kirke's flèche over the crossing, fitted to the laser scan and the oblique photos: an octagonal copper base
+// with a railing on the ridge at 17.5 m, a bell-shaped cap, an open lantern on slim posts, a second bulb, the spire to 30.6 m
+function buildHolmens([x, z]){
+  const T=tileFor(x,z), G0=GROUND, cu=[104,150,128], cuD=[84,124,106], gold=[214,176,80], r8=Math.PI/8;
+  cyl(T, x, z, 2.5, G0+15.5, G0+18.4, 8, cuD, 14, r8);
+  cyl(T, x, z, 2.75, G0+18.4, G0+18.8, 8, cu, 14, r8);
+  for (let k=0;k<16;k++){ const a=k/16*Math.PI*2; box(T, x+Math.cos(a)*2.6, z+Math.sin(a)*2.6, a, 0.06, 0.06, G0+18.8, G0+19.6, cuD, 14); }
+  lathe(T, x, z, [[2.4,G0+18.8],[2.45,G0+19.8],[2.1,G0+21.0],[1.4,G0+21.9],[1.0,G0+22.3]], 8, cu, 14, r8);
+  cyl(T, x, z, 0.75, G0+22.3, G0+24.6, 8, [26,30,28], 19, r8);                                   // the open lantern
+  for (let k=0;k<8;k++){ const a=r8+k/8*Math.PI*2; box(T, x+Math.cos(a)*1.0, z+Math.sin(a)*1.0, a, 0.09, 0.09, G0+22.3, G0+24.6, cu, 14); }
+  cyl(T, x, z, 1.15, G0+24.6, G0+24.9, 8, cu, 14, r8);
+  lathe(T, x, z, [[1.0,G0+24.9],[1.05,G0+25.6],[0.7,G0+26.4],[0.3,G0+26.9],[0.22,G0+27.6],[0.04,G0+30.2]], 8, cu, 14, r8);
+  ball(T, x, G0+28.0, z, 0.2, gold, 14, 6); lathe(T, x, z, [[0.03,G0+30.2],[0.02,G0+30.8]], 4, gold, 14);
+  solid(x, z, 2.7, G0+22);
+}
+// Nationalbanken (Arne Jacobsen, 1971): a 20 m block of dark smoked glass between blank ends of pale Porsgrunn
+// marble, two courtyards, and the walled garden beside it at 3.4 m. Outlines measured from the laser scan.
+function buildNatbank(N){
+  const G0=GROUND, flat=pts=>new Float32Array(pts.flatMap(p=>[p[0],p[1]]));
+  const ring=(pts, out)=>{ const r=flat(pts); return (ringArea(r)>0)===out ? r : flat(pts.slice().reverse()); };   // out: walls face outward
+  const marble=[206,204,198], glass=[52,50,48], low=ring(N.low, true), blk=ring(N.block, true), T=tileFor(...centroid(blk));
+  // the garden wall and its top, draped with the photo (the garden's rows of trees)
+  walls(T, low, G0, G0+N.lowH, marble, 13, 0.2, 4, 0);
+  cap(T, [low], G0+N.lowH, [150,150,150], 17, 0);
+  // the block: glass on the long sides, marble on the short ends, a dark parapet
+  const yt=G0+N.h;
+  for (let k=0;k<4;k++){ const ax=blk[k*2], az=blk[k*2+1], bx=blk[((k+1)%4)*2], bz=blk[((k+1)%4)*2+1], long=Math.hypot(bx-ax, bz-az)>80;
+    walls(T, new Float32Array([ax,az,bx,bz]), G0, yt, long ? glass : marble, long ? 3 : 13, 0.4, 3.3, long ? 6 : 0); }
+  const courts=N.courts.map(c=>ring(c.slice(0,4), true));
+  cap(T, [blk, ...courts], yt, [150,150,150], 17, 0);
+  walls(T, blk, yt, yt+0.6, [70,70,72], 13, 0.4, 4, 0);
+  N.courts.forEach((c,i)=>{ const y0=G0+c[4];
+    walls(T, ring(c.slice(0,4), false), y0, yt, glass, 3, 0.4, 3.3, 6);
+    cap(T, [courts[i]], y0, [150,150,150], 17, 0); });
+  rasterFill([low], j=>{ const v=Math.round((G0+N.lowH)*10); if (v>H2[j]) H2[j]=v; });
+  rasterFill([blk], j=>{ const v=Math.round(yt*10); if (v>H2[j]) H2[j]=v; });
 }
 // Det Kongelige Teater's front on Kongens Nytorv (Vilhelm Dahlerup, 1874): five arched doors, the loggia of three tall
 // arches between paired columns, a cornice, and Holberg and Oehlenschläger seated either side of the steps

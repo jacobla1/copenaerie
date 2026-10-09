@@ -230,6 +230,7 @@ const HAND = [
   { id:'cityhall', x:-810.6, z:547.5,  drop:6.5, skip:6.5 },
   { id:'rund',     x:-507.7, z:-114.0, drop:9,   skip:8.6, hide:8 },
   { id:'slotskirke', x:-256.6, z:351.6, drop:14, skip:11.5 },
+  { id:'holmens',  x:11.6,   z:387.3,  drop:6,   skip:3.2 },
 ];
 const hand = {};
 for (const h of HAND){
@@ -271,6 +272,32 @@ for (const h of HAND){
   if (kt){ kt.colW=0xc9b896; kt.noFacade=true; hand.teater=[147.35, 40.9, Math.atan2(-9.8, 25.5)]; }
   const sh=blds.find(b=>b.year===2007 && Math.abs(Math.abs(b.A)-6744)<300 && Math.hypot(b.cx-685, b.cz+33)<40);
   if (sh){ sh.colW=0x3b3330; sh.noFacade=true; (hand.roofCol=hand.roofCol||[]).push([+sh.cx.toFixed(1), +sh.cz.toFixed(1), 0x6a6866]); hand.glass=[sh.rings[0].flat().map(v=>+v.toFixed(1))]; }
+}
+// Colours from the oblique photos where OSM's parts carry none (they would get a random palette) or the wrong one:
+// Rosenborg is red brick under green copper, Amalienborg's palaces pale stone, Holmens Kirke red brick.
+{
+  const RECOL = [
+    { x:-429, z:-600, r:45, wc:0x6e3e30, rc:0x76a07c, map:{ [0xc1d5ca]:0x76a07c, [0xc48a58]:0x6e3e30 } },
+    { x:566,  z:-467, r:125, wc:0xd6cdbd },
+  ];
+  for (const o of RECOL) for (const l of lms){ const [cx,cz]=centroid(l.r); if (Math.hypot(cx-o.x, cz-o.z)>=o.r) continue;
+    l.wc = o.map && o.map[l.wc]!==undefined ? o.map[l.wc] : l.wc<0 ? o.wc : l.wc;
+    if (o.rc!==undefined) l.rc = o.map && o.map[l.rc]!==undefined ? o.map[l.rc] : l.rc<0 ? o.rc : l.rc; }
+  const ros=blds.find(b=>Math.hypot(b.cx+429.1, b.cz+600.5)<6 && b.year===1606);
+  if (ros){ ros.colW=0x6e3e30; ros.colR=0x76a07c; ros.noFacade=true; (hand.roofCol=hand.roofCol||[]).push([+ros.cx.toFixed(1), +ros.cz.toFixed(1), 0x82a684]); }
+  for (const b of blds) if (b.year>=1750 && b.year<=1760 && b.colW===0xdecbb7 && Math.hypot(b.cx-566, b.cz+467)<125){ b.colW=0xd6cdbd; b.noFacade=true; }
+  const hol=blds.find(b=>Math.hypot(b.cx-11.6, b.cz-388.4)<6 && b.year===1619);
+  if (hol){ hol.colW=0x985440; hol.noFacade=true; }
+}
+// Nationalbanken (Arne Jacobsen, 1971): one record covers both the 20 m block and the low walled garden beside it, so
+// its walls stopped at the garden wall and the photo was smeared down the glass. It is built by hand from the laser
+// scan instead: the block with its two courtyards, and the garden at 3.4 m.
+{
+  const nb=blds.find(b=>b.year===1971 && Math.abs(Math.abs(b.A)-11409)<300 && Math.hypot(b.cx-145.8, b.cz-363.7)<40);
+  if (nb){ nb.wall=96; nb.noFacade=true;
+    hand.natbank={ block:[[169.8,284.3],[209.6,426.0],[166.5,438.0],[126.8,296.4]], h:20.3,
+      courts:[[[145.1,308.0],[160.7,303.6],[173.4,348.7],[157.8,353.1],7.8], [[164.9,377.4],[180.0,373.3],[187.5,401.6],[172.4,405.6],4.6]],
+      low:nb.rings[0].map(p=>[+p[0].toFixed(1), +p[1].toFixed(1)]), lowH:3.4 }; }
 }
 // Børsen, the 1620s exchange, burnt in April 2024 and stands under a white restoration tent in the 2025 laser scan and
 // photos. It is modelled by hand as it stood before the fire, on its footprint from kbhkort: centre, length, width,
