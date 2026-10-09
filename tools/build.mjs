@@ -206,12 +206,20 @@ for (const e of load('osm_parts').elements){
   lms.push({ r, base, eave, top, shape, wc, rc });
 }
 // Vor Frelsers Kirke's spire is modelled by hand in index.html (its gold outside staircase); drop the OSM boxes
-// stacked up its axis, keeping the tower they stand on. The axis is the laser scan's highest point there.
-const HAND_SPIRES = [{ x:688.8, z:781.4, r:9, above:47 }];
+// stacked up its axis (one is a dark slab 0.4 m over the tower top, which flickered), keeping the tower they stand on
+// and its gallery. The axis is the laser scan's highest point there. The church body's OSM parts are flat boxes at
+// ridge height with the hipped roof buried inside them, so they go too and the laser-scanned roof takes over.
+const HAND_SPIRES = [{ x:688.8, z:781.4, r:9, above:46.2, body:40, colour:0x8a4a38 }];
 for (let i=lms.length-1; i>=0; i--){
   const l=lms[i], [cx,cz]=centroid(l.r);
-  if (HAND_SPIRES.some(h=>Math.hypot(cx-h.x, cz-h.z)<h.r && l.top>h.above)) lms.splice(i,1);
+  for (const h of HAND_SPIRES){
+    const d=Math.hypot(cx-h.x, cz-h.z);
+    if ((d<h.r && Math.max(l.top, l.eave)>h.above) || (d>=h.r && d<h.body)){ lms.splice(i,1); break; }
+    if (d<h.r && l.top-l.base>20){ l.wc=h.colour; l.base=0; }  // the tower: red brick, from the street up
+  }
 }
+// the church body is red brick too; the oblique photos see mostly its sandstone trim, so its photo colours are skipped
+for (const b of blds) if (HAND_SPIRES.some(h=>Math.hypot(b.cx-h.x, b.cz-h.z)<30 && Math.abs(b.A)>800)){ b.colW=HAND_SPIRES[0].colour; b.noFacade=true; }
 lms.sort((a,b)=>a.top-b.top);
 for (const l of lms) fillPoly([l.r], i=>{ const v=l.shape?l.eave+(l.top-l.eave)*0.5:l.top; if (v>HR[i]) HR[i]=v; });
 console.log('landmark parts', lms.length);
@@ -412,7 +420,8 @@ if (fs.existsSync(FC)){
     const F = [wallRings.length & 0xffff, wallRings.length >> 16]; let n = 0, seen = 0;
     wallRings.forEach((w, i) => {
       const c = cols[i];
-      if (!w || !c){ F.push(0); return; }
+      // a building whose outline changed since facades_dk.py ran keeps its procedural colour
+      if (!w || !c || blds[i].noFacade || c.length !== w.length || c.some((r, k) => r.length !== w[k].length)){ F.push(0); return; }
       const segs = c.flat(); F.push(segs.length);
       for (const rgb of segs){ n++; if (!rgb){ F.push(0); continue; } seen++; F.push(Math.max(1, ((rgb[0] >> 3) << 11) | ((rgb[1] >> 2) << 5) | (rgb[2] >> 3))); }
     });

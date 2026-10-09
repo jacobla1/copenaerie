@@ -328,6 +328,7 @@ const cityMat = new THREE.ShaderMaterial({
   uniforms: U, extensions:{ derivatives:true },
   vertexShader: cityVS,
   fragmentShader: COMMON + PHOTO + `varying vec3 vW; varying vec3 vN; varying vec3 vCol; varying vec4 vWin; varying vec4 vInfo;
+    float box(float f, float a, float b, float w){ return smoothstep(a-w, a+w, f) * (1.0 - smoothstep(b-w, b+w, f)); }
     void main(){
       vec3 n = normalize(vN);
       vec3 V = cameraPosition - vW; float dist = length(V); V /= dist;
@@ -335,8 +336,13 @@ const cityMat = new THREE.ShaderMaterial({
       vec3 alb = pow(vCol, vec3(2.2));
       float h = vWin.y;                       // height above the street
       float win = 0.0, glassy = 0.0, lit = 0.0, rough = 0.0;
+      // windows sit back in the wall: rev is the inner side of the opening seen past the glass, recSh the sun that
+      // reaches the glass past the opening's edges; frames, glazing bars and doors are drawn at the glass
+      float rev = 0.0, frame = 0.0, recSh = 1.0;
+      vec3 revN = n, gN = n, fcol = vec3(0.0), inAlb = vec3(0.0), inEm = vec3(0.0);
       // taken outside any branch so the derivatives behind them stay defined
       vec3 pho = photo(vW.xz), fn = normalize(cross(dFdx(vW), dFdy(vW)));
+      float fwH = fwidth(h), fwU = fwidth(vWin.x);
       if (kind > 17.5){
         alb = vec3(1.0);
       } else if (kind > 16.5){
@@ -347,46 +353,121 @@ const cityMat = new THREE.ShaderMaterial({
         float L = vWin.w, fh = vWin.z;
         float spacing = kind > 1.5 ? 2.3 : 3.1;
         float nc = max(1.0, floor((L-0.6)/spacing)), cs = L/nc;
-        float fx = fract(vWin.x/cs), ci = floor(vWin.x/cs);
-        float fl = floor(h/fh), fy = fract(h/fh);
-        float wx = fwidth(vWin.x/cs), wy = fwidth(h/fh);
+        float ci = floor(vWin.x/cs), fx = vWin.x/cs - ci;
+        float fl = floor(h/fh), fy = h/fh - fl;
+        float wx = fwU/cs, wy = fwH/fh;
         float hw = kind > 2.5 ? 0.47 : (kind > 1.5 ? 0.38 : 0.21);
         float y0 = fl < 0.5 ? 0.08 : 0.30, y1 = fl < 0.5 ? 0.86 : 0.82;
         if (kind > 2.5 && kind < 3.5){ y0 = 0.04; y1 = 0.96; }
-        // older blocks of four or more storeys: shopfronts on the ground floor
+        // older blocks of four or more storeys: shopfronts on the ground floor, under a painted sign board
         bool shop = kind < 1.5 && floors > 3.5 && fl < 0.5;
-        if (shop){ hw = 0.36; y0 = 0.06; y1 = 0.9; }
-        float inX = smoothstep(0.5-hw-wx, 0.5-hw+wx, fx) * (1.0 - smoothstep(0.5+hw-wx, 0.5+hw+wx, fx));
-        float inY = smoothstep(y0-wy, y0+wy, fy) * (1.0 - smoothstep(y1-wy, y1+wy, fy));
+        if (shop){ hw = 0.38; y0 = 0.05; y1 = 0.72; }
+        // one street door per wall run
+        bool isDoor = kind < 2.5 && !shop && fl < 0.5 && nc > 1.5 && abs(ci - floor(hash12(vec2(seed*3.7, L))*nc)) < 0.5;
+        if (isDoor){ hw = 0.2; y0 = 0.0; y1 = 0.8; }
         float ok = step(fl, floors-0.5) * step(1.4, L) * step(0.3, h);
-        if (kind > 3.5) ok *= step(0.55, hash12(vec2(ci+seed*91.0, fl)));
+        float r1 = hash12(vec2(ci+seed*91.0, fl)), r2 = hash12(vec2(ci*1.7+seed*413.0, fl*3.1+seed*57.0)), r3 = hash12(vec2(fl*5.3+seed*17.0, ci*2.9+1.3));
+        if (kind > 3.5) ok *= step(0.55, r1);
         float cover = 2.0*hw*(y1-y0);
-        float farAway = smoothstep(0.22, 0.55, max(wx, wy));
-        win = mix(inX*inY, cover*0.85, farAway) * ok;
-        lit = step(0.9, hash12(vec2(ci*1.7+seed*413.0, fl*3.1+seed*57.0))) * (1.0-farAway*0.6);
-        if (fl < 0.5) lit = max(lit, step(0.6, hash12(vec2(ci+seed*29.0, 7.0)))*(shop ? 0.85 : 0.6));
-        // plaster, brick and concrete get a little mottling
-        alb *= 0.9 + 0.2*vnoise(vW.xz*0.35 + vW.y*0.5) ;
-        if (kind < 2.5){
-          float nearF = 1.0 - farAway;
-          // painted frames and glazing bars: white on old facades, dark grey on modern ones
-          float fw = 0.07/cs, fv = 0.07/fh;
-          float inXi = smoothstep(0.5-hw+fw-wx, 0.5-hw+fw+wx, fx) * (1.0 - smoothstep(0.5+hw-fw-wx, 0.5+hw-fw+wx, fx));
-          float inYi = smoothstep(y0+fv-wy, y0+fv+wy, fy) * (1.0 - smoothstep(y1-fv-wy, y1-fv+wy, fy));
-          float bars = kind < 1.5 && !shop ? max(1.0 - smoothstep(0.0, 0.035/cs + wx, abs(fx-0.5)), 1.0 - smoothstep(0.0, 0.035/fh + wy, abs(fy - (y0 + (y1-y0)*0.68)))) : 0.0;
-          float frame = clamp(inX*inY - inXi*inYi*(1.0 - bars), 0.0, 1.0) * ok * nearF;
-          vec3 fc = kind < 1.5 ? vec3(0.78, 0.77, 0.74) : vec3(0.09, 0.09, 0.1);
-          win *= 1.0 - frame; lit *= 1.0 - frame;
-          // plinth of dark stone; on old facades a string course over the ground floor and a cornice under the eaves
-          float plinth = 1.0 - smoothstep(0.62, 0.62 + fwidth(h)*1.5, h);
-          float course = kind < 1.5 && floors > 2.5 ? (smoothstep(fh-0.32, fh-0.3, h) - smoothstep(fh-0.08, fh-0.06, h)) : 0.0;
-          float eave = floors*fh;
-          float cornice = kind < 1.5 && floors > 1.5 ? smoothstep(eave-0.75, eave-0.7, h) * (1.0 - smoothstep(eave+0.15, eave+0.2, h)) : 0.0;
-          float under = kind < 1.5 && floors > 1.5 ? smoothstep(eave-0.95, eave-0.9, h) * (1.0 - smoothstep(eave-0.75, eave-0.7, h)) : 0.0;
-          alb = mix(alb, fc, frame);
-          alb = mix(alb, vec3(0.08, 0.075, 0.07), plinth*0.85);
-          alb *= 1.0 + 0.28*(course + cornice)*nearF - 0.35*under*nearF;
+        // too small to draw: blend each axis to its average on its own, so a wall seen edge-on still shows its rows
+        float fX = smoothstep(0.22, 0.55, wx), fY = smoothstep(0.22, 0.55, wy), farAway = max(fX, fY), nearF = 1.0 - farAway;
+        // where the view ray meets glass set dep metres back, and where a sun ray from there leaves the opening
+        vec3 t = vec3(-n.z, 0.0, n.x);
+        float vn = max(dot(V, n), 0.2), ln = max(dot(uSunDir, n), 0.05);
+        float dep = (kind < 1.5 ? 0.26 : kind < 2.5 ? 0.15 : 0.0) * nearF;
+        vec2 g = vec2(fx - dep*dot(V, t)/vn/cs, fy - dep*V.y/vn/fh);
+        vec2 sg = g + dep*vec2(dot(uSunDir, t)/cs, uSunDir.y/fh)/ln;
+        float inP = box(fx, 0.5-hw, 0.5+hw, wx) * box(fy, y0, y1, wy) * ok;
+        float inG = box(g.x, 0.5-hw, 0.5+hw, wx) * box(g.y, y0, y1, wy);
+        recSh = box(sg.x, 0.5-hw, 0.5+hw, wx+0.01) * box(sg.y, y0, y1, wy+0.01);
+        rev = inP * (1.0 - inG) * nearF;
+        float ex = max(0.5-hw-g.x, g.x-0.5-hw)*cs, ey = max(y0-g.y, g.y-y1)*fh;
+        revN = ex > ey ? (g.x < 0.5 ? t : -t) : vec3(0.0, g.y < 0.5 ? 1.0 : -1.0, 0.0);
+        float wu = (g.x - 0.5 + hw)/(2.0*hw), wv = (g.y - y0)/(y1 - y0);   // 0..1 across and up the window
+        // frames and glazing bars: white on old facades, dark grey on modern ones
+        float fw = 0.07/cs, fv = 0.07/fh;
+        float inGi = box(g.x, 0.5-hw+fw, 0.5+hw-fw, wx) * box(g.y, y0+fv, y1-fv, wy);
+        float bars = 0.0;
+        if (kind < 1.5 && !shop) bars = max(1.0 - smoothstep(0.0, 0.035/cs + wx, abs(g.x-0.5)), 1.0 - smoothstep(0.0, 0.035/fh + wy, abs(g.y - (y0 + (y1-y0)*0.68))));
+        else if (kind < 2.5) bars = 1.0 - smoothstep(0.0, 0.03/cs + wx, abs(wu - (r1 < 0.5 ? 0.5 : 0.33))*2.0*hw);
+        else if (kind < 3.5) bars = 1.0 - smoothstep(0.0, 0.04/fh + wy, abs(fy - 0.5));
+        float glassM = inP * inG;
+        frame = clamp(inG - inGi*(1.0 - bars), 0.0, 1.0) * inP * nearF * step(kind, 3.5);
+        fcol = kind < 1.5 ? vec3(0.78, 0.77, 0.74) : vec3(0.09, 0.09, 0.1);
+        win = mix(glassM*(1.0 - frame), mix(box(fx, 0.5-hw, 0.5+hw, wx), 2.0*hw, fX) * mix(box(fy, y0, y1, wy), y1-y0, fY) * 0.85*ok, farAway);
+        // the room behind: mostly dark, some lit; curtains and blinds in many
+        lit = step(0.9, r2) * (1.0 - farAway*0.6);
+        if (fl < 0.5) lit = max(lit, step(0.6, hash12(vec2(ci+seed*29.0, 7.0)))*(shop ? 0.9 : 0.6));
+        vec3 warm = mix(vec3(1.0, 0.5, 0.2), vec3(1.0, 0.74, 0.46), r3);
+        float cur = 0.0;
+        if (kind < 1.5 && !shop){
+          float b = 1.0 - 0.6*fract(r3*13.0);
+          if (r3 < 0.3) cur = 1.0 - smoothstep(0.14, 0.2, wu) + smoothstep(0.8, 0.86, wu);
+          else if (r3 < 0.5) cur = (1.0 - smoothstep(0.42, 0.46, wv)) * 0.8;
+          else if (r3 < 0.62) cur = smoothstep(b - 0.04, b, wv);
+        } else if (kind < 2.5 && r3 < 0.4){
+          cur = step(1.0 - 0.8*fract(r3*7.0), wv) * (0.75 + 0.25*step(0.5, fract(wv*(y1-y0)*fh*14.0)));
         }
+        cur *= 0.9 + 0.1*sin(wu*(30.0 + 20.0*r1));  // folds
+        inAlb = mix(vec3(0.035, 0.034, 0.036)*(0.6 + 0.8*r1), mix(vec3(0.42, 0.41, 0.38), vec3(0.36, 0.3, 0.22), step(0.5, fract(r3*5.0))), cur);
+        inEm = lit * warm * (0.35 + 0.55*r1) * (0.55 + 0.7*wv) * (1.0 + cur*0.6);
+        // shops: shelves and displays, lit but not blown out
+        if (shop) inEm = lit * warm * (0.22 + 0.25*r1) * (0.55 + 0.45*vnoise(vec2(wu*7.0, wv*2.5) + r1*17.0)) * (0.7 + 0.3*step(0.12, fract(wv*3.0)));
+        // window by window choices alias once windows blur together along the wall: use their average there
+        inAlb = mix(inAlb, vec3(0.08, 0.075, 0.07), fX);
+        inEm = mix(inEm, vec3(1.0, 0.6, 0.3)*(fl < 0.5 ? 0.3 : 0.06), fX);
+        // doors: painted panels under a small fanlight
+        if (isDoor){
+          float door = glassM * step(wv, 0.8);
+          vec3 dc = mix(vec3(0.05, 0.11, 0.07), vec3(0.2, 0.05, 0.03), step(0.5, fract(seed*0.37)));
+          float pnl = box(fract(wu*2.0), 0.15, 0.85, 0.04) * box(fract(wv/0.8*3.0), 0.12, 0.88, 0.04);
+          fcol = mix(fcol, dc*(0.75 + 0.35*pnl), door);
+          frame = max(frame, door);
+          win *= 1.0 - door;
+        }
+        // plaster, brick and concrete get a little mottling and a grimier foot
+        alb *= 0.9 + 0.2*vnoise(vW.xz*0.35 + vW.y*0.5);
+        alb *= 0.86 + 0.14*smoothstep(0.0, 2.5, h);
+        if (kind < 2.5){
+          // brick: 7.5 cm courses, each brick its own tone, fading out once too small to see
+          float brick = smoothstep(1.25, 1.6, alb.r/max(alb.g, 1e-3)) * (1.0 - smoothstep(0.012, 0.03, fwH));
+          float bu = vWin.x/0.23 + 0.5*mod(floor(h/0.075), 2.0), bv = h/0.075;
+          float mortar = max(smoothstep(0.75, 0.9, abs(fract(bv) - 0.5)*2.0), smoothstep(0.85, 0.95, abs(fract(bu) - 0.5)*2.0));
+          alb *= 1.0 + brick*((hash12(floor(vec2(bu, bv))) - 0.5)*0.22 - 0.25*mortar);
+          if (shop){
+            float board = box(fx, 0.5-hw, 0.5+hw, wx) * box(fy, 0.77, 0.9, wy) * ok;
+            alb = mix(alb, pow(fract(vec3(0.71, 0.37, 0.53)*seed*1.7 + 0.3)*0.45 + 0.06, vec3(2.2)), board*nearF);
+          }
+          if (kind < 1.5){
+            // classic facades: rendered window surrounds and stone sills, with a shadow under each sill
+            float plain = shop || isDoor ? 0.0 : 1.0;
+            float sw = 0.14/cs, sv = 0.14/fh, has = step(0.35, fract(seed*0.731)) * plain;
+            float sur = (box(fx, 0.5-hw-sw, 0.5+hw+sw, wx) * box(fy, y0-sv, y1+sv, wy)*ok - inP) * has;
+            float sl = box(fx, 0.5-hw-0.07/cs, 0.5+hw+0.07/cs, wx) * box(fy, y0-0.09/fh, y0, wy) * ok * plain;
+            float slSh = box(fx, 0.5-hw-0.05/cs, 0.5+hw+0.05/cs, wx) * box(fy, y0-0.19/fh, y0-0.09/fh, wy) * ok * plain;
+            alb *= 1.0 + 0.16*sur*nearF;
+            alb = mix(alb, vec3(0.5, 0.48, 0.44), sl*nearF);
+            alb *= 1.0 - 0.45*slSh*nearF;
+            // rusticated ground floor
+            float rus = floors > 2.5 && h < fh - 0.4 ? 1.0 - smoothstep(0.0, 0.025 + fwH, abs(fract(h/0.45 + 0.5) - 0.5)*0.45) : 0.0;
+            alb *= 1.0 - 0.3*rus*nearF*(1.0 - inP);
+          }
+          // plinth of dark stone; on old facades a string course over the ground floor and a cornice under the eaves;
+          // on modern blocks the slab edge at each floor
+          float plinth = 1.0 - smoothstep(0.62, 0.62 + fwH*1.5, h);
+          float course = kind < 1.5 && floors > 2.5 ? (smoothstep(fh-0.32, fh-0.3, h) - smoothstep(fh-0.08, fh-0.06, h)) : 0.0;
+          float eave = vInfo.w > 10.0 ? vInfo.w/10.0 : floors*fh;
+          float cornice = kind < 1.5 && floors > 1.5 ? smoothstep(eave-0.75, eave-0.7, h) * (1.0 - smoothstep(eave-0.3, eave-0.25, h)) : 0.0;
+          float under = kind < 1.5 && floors > 1.5 ? smoothstep(eave-0.95, eave-0.9, h) * (1.0 - smoothstep(eave-0.75, eave-0.7, h)) : 0.0;
+          // the gutter and the roof's overhang shade the top of the wall
+          float gutter = vInfo.w > 10.0 ? smoothstep(eave-0.3, eave-0.05, h) : 0.0;
+          float slab = kind > 1.5 && fl > 0.5 ? box(fy, -0.01, 0.06, wy) * ok : 0.0;
+          alb = mix(alb, vec3(0.08, 0.075, 0.07), plinth*0.85);
+          alb *= 1.0 + 0.28*(course + cornice)*nearF - 0.4*under*nearF - 0.25*slab*nearF;
+          alb *= 1.0 - 0.6*gutter;
+        }
+        // old panes are never quite flat: each tips its reflection a little
+        gN = normalize(n + t*(r1 - 0.5)*0.08 + vec3(0.0, (r2 - 0.5)*0.06, 0.0));
         glassy = kind > 2.5 && kind < 3.5 ? 1.0 : 0.0;
       } else if (kind < 10.5){
         alb *= 0.82 + 0.18*step(0.42, fract(vW.y*3.4)) ;
@@ -410,18 +491,24 @@ const cityMat = new THREE.ShaderMaterial({
       float ao = kind < 9.5 || kind > 12.5 ? mix(0.42, 1.0, smoothstep(0.0, 9.0, h)) : 1.0;
       vec3 amb = mix(vec3(0.11,0.09,0.08), vec3(0.20,0.25,0.40), n.y*0.5+0.5);
       amb += vec3(0.14,0.09,0.05)*max(-n.y,0.0) + vec3(0.06,0.05,0.04)*(1.0-abs(n.y));
-      vec3 col = alb*(uSunCol*ndl*sh + amb*ao);
+      vec3 sunL = uSunCol*ndl*sh, ambL = amb*ao;
+      vec3 col = alb*(sunL + ambL);
       // the photo already holds the midday light, so our evening sun only shades it
       if (kind > 17.5) col = vec3(5.0, 3.4, 1.7);
       else if (kind > 16.5) col = alb*(vec3(0.66,0.66,0.72) + vec3(1.0,0.82,0.62)*(0.36*ndl*sh/max(uSunDir.y+0.35,0.5)));
-      // glass: sky reflection over a dark interior, some rooms already lit
-      vec3 R = reflect(-V, n);
-      float fr = 0.04 + 0.96*pow(1.0-max(dot(n,V),0.0), 5.0);
-      vec3 sky = skyCol(normalize(vec3(R.x, abs(R.y)*0.7+0.03, R.z)));
-      vec3 inside = vec3(0.012,0.013,0.016) + vec3(1.0,0.6,0.3)*0.55*lit;
-      vec3 glass = mix(inside, sky*0.6, clamp(fr*1.2+0.05+glassy*0.3, 0.0, 1.0));
-      glass += uSunCol*pow(max(dot(R,uSunDir),0.0), 400.0)*6.0*sh;
+      // the opening's inner sides: sunlit only where they turn to the sun, and half hidden from the sky
+      col = mix(col, alb*(uSunCol*max(dot(revN, uSunDir), 0.0)*sh*0.8 + ambL*0.5), rev);
+      // glass: the sky above the horizon, the street and the houses opposite below it, over the room behind
+      vec3 R = reflect(-V, gN);
+      float fr = 0.04 + 0.96*pow(1.0-max(dot(gN,V),0.0), 5.0);
+      vec3 sky = skyCol(normalize(vec3(R.x, max(R.y, 0.0)*0.85+0.03, R.z)));
+      vec3 street = vec3(0.05, 0.047, 0.044) + uSunCol*0.012 + vec3(0.04, 0.035, 0.03)*vnoise(vec2(dot(R.xz, vec2(7.0, 3.0)), R.y*9.0));
+      vec3 env = mix(street, sky*0.65, smoothstep(-0.02, 0.22, R.y + 0.08*(vnoise(R.xz*6.0) - 0.5)));
+      vec3 inside = inAlb*(ambL*0.5 + sunL*recSh*0.35) + inEm;
+      vec3 glass = mix(inside, env, clamp(fr*1.2+0.06+glassy*0.3, 0.0, 1.0));
+      glass += uSunCol*pow(max(dot(R,uSunDir),0.0), 400.0)*6.0*sh*recSh;
       col = mix(col, glass, win);
+      col = mix(col, fcol*(sunL*recSh + ambL*0.9), frame);
       if (kind > 11.5 && kind < 12.5 || kind > 13.5 && kind < 14.5) col += uSunCol*pow(max(dot(R,uSunDir),0.0), 24.0)*0.18*sh*alb.g*3.0;
       gl_FragColor = vec4(applyFog(col, vW), 1.0);
     }`
@@ -599,14 +686,15 @@ class Buf {
 }
 // Collects city surfaces for one map tile.
 class Tile {
-  constructor(){ this.pos=new Buf(Float32Array,6000); this.nor=new Buf(Int8Array,6000); this.col=new Buf(Uint8Array,6000); this.win=new Buf(Float32Array,8000); this.inf=new Buf(Uint8Array,8000); this.idx=new Buf(Uint32Array,9000); this.n=0; }
-  vert(x,y,z, nx,ny,nz, c, u,h,fh,L, kind,seed,floors){
+  constructor(){ this.pos=new Buf(Float32Array,6000); this.nor=new Buf(Int8Array,6000); this.col=new Buf(Uint8Array,6000); this.win=new Buf(Float32Array,8000); this.inf=new Buf(Uint16Array,8000); this.idx=new Buf(Uint32Array,9000); this.n=0; }
+  // top: the wall's eave height above the street at this end (0 for anything that is not a wall)
+  vert(x,y,z, nx,ny,nz, c, u,h,fh,L, kind,seed,floors, top){
     this.pos.need(3); this.nor.need(3); this.col.need(3); this.win.need(4); this.inf.need(4);
     let a=this.pos.a, o=this.pos.len; a[o]=x; a[o+1]=y; a[o+2]=z; this.pos.len+=3;
     a=this.nor.a; o=this.nor.len; a[o]=Math.round(nx*127); a[o+1]=Math.round(ny*127); a[o+2]=Math.round(nz*127); this.nor.len+=3;
     a=this.col.a; o=this.col.len; a[o]=c[0]; a[o+1]=c[1]; a[o+2]=c[2]; this.col.len+=3;
     a=this.win.a; o=this.win.len; a[o]=u; a[o+1]=h; a[o+2]=fh; a[o+3]=L; this.win.len+=4;
-    a=this.inf.a; o=this.inf.len; a[o]=kind; a[o+1]=Math.round(seed*255); a[o+2]=floors; a[o+3]=0; this.inf.len+=4;
+    a=this.inf.a; o=this.inf.len; a[o]=kind; a[o+1]=Math.round(seed*255); a[o+2]=floors; a[o+3]=top>0 ? Math.round(top*10) : 0; this.inf.len+=4;
     return this.n++;
   }
   tri(a,b,c){ this.idx.need(3); const A=this.idx.a, o=this.idx.len; A[o]=a; A[o+1]=b; A[o+2]=c; this.idx.len+=3; }
@@ -647,10 +735,10 @@ function walls(T, r, y0, y1, c0, kind, seed, fh, floors, FC, fo){
     const fv = FC ? FC[fo+i] : 0, c = fv ? facadeRGB(fv, [0,0,0]) : c0;
     const dx=bx-ax, dz=bz-az, L=Math.hypot(dx,dz); if (L<0.05) continue;
     const nx=dz/L, nz=-dx/L, h0=y0-GROUND, h1=y1-GROUND;
-    const a=T.vert(ax,y0,az, nx,0,nz, c, 0,h0,fh,L, kind,seed,floors);
-    const b=T.vert(bx,y0,bz, nx,0,nz, c, L,h0,fh,L, kind,seed,floors);
-    const cc=T.vert(bx,y1,bz, nx,0,nz, c, L,h1,fh,L, kind,seed,floors);
-    const d=T.vert(ax,y1,az, nx,0,nz, c, 0,h1,fh,L, kind,seed,floors);
+    const a=T.vert(ax,y0,az, nx,0,nz, c, 0,h0,fh,L, kind,seed,floors, h1);
+    const b=T.vert(bx,y0,bz, nx,0,nz, c, L,h0,fh,L, kind,seed,floors, h1);
+    const cc=T.vert(bx,y1,bz, nx,0,nz, c, L,h1,fh,L, kind,seed,floors, h1);
+    const d=T.vert(ax,y1,az, nx,0,nz, c, 0,h1,fh,L, kind,seed,floors, h1);
     T.tri(a,cc,b); T.tri(a,d,cc);
   }
 }
@@ -811,8 +899,8 @@ function wallsTop(T, P, s, n, c, kind, seed, fh, floors, FC, fo){
       if (L>0.05){
         const nx=(bz-az)/L, nz=-(bx-ax)/L, ha=Hh(a), hb=Hh(a+1);
         const fv = FC ? FC[fo + a%n] : 0; if (fv) c = facadeRGB(fv, [0,0,0]); else c = c0;
-        const v0=T.vert(ax,GROUND,az, nx,0,nz, c, u,0,fh,len, kind,seed,floors), v1=T.vert(bx,GROUND,bz, nx,0,nz, c, u+L,0,fh,len, kind,seed,floors);
-        const v2=T.vert(bx,GROUND+hb,bz, nx,0,nz, c, u+L,hb,fh,len, kind,seed,floors), v3=T.vert(ax,GROUND+ha,az, nx,0,nz, c, u,ha,fh,len, kind,seed,floors);
+        const v0=T.vert(ax,GROUND,az, nx,0,nz, c, u,0,fh,len, kind,seed,floors, ha), v1=T.vert(bx,GROUND,bz, nx,0,nz, c, u+L,0,fh,len, kind,seed,floors, hb);
+        const v2=T.vert(bx,GROUND+hb,bz, nx,0,nz, c, u+L,hb,fh,len, kind,seed,floors, hb), v3=T.vert(ax,GROUND+ha,az, nx,0,nz, c, u,ha,fh,len, kind,seed,floors, ha);
         T.tri(v0,v2,v1); T.tri(v0,v3,v2);
       }
       u+=L;
@@ -1449,7 +1537,30 @@ const blurMat = mkPass(`uniform sampler2D tSrc; uniform vec2 uDir; varying vec2 
     s+=texture2D(tSrc,vUv+uDir*1.3846).rgb*0.3162162; s+=texture2D(tSrc,vUv-uDir*1.3846).rgb*0.3162162;
     s+=texture2D(tSrc,vUv+uDir*3.2308).rgb*0.0702703; s+=texture2D(tSrc,vUv-uDir*3.2308).rgb*0.0702703;
     gl_FragColor=vec4(s,1.0); }`, { tSrc:{value:null}, uDir:{value:new THREE.Vector2()} });
-const compMat = mkPass(`uniform sampler2D tScene; uniform sampler2D tBloom; uniform float uTime; uniform float uFade; uniform float uBars;
+// Ambient occlusion from the depth buffer, at half resolution: darkens where walls meet the street, inner corners,
+// courtyards and narrow streets, within about 3 m. Skipped on phones and low-memory devices.
+const AO_ON = !(PHOTO_MAX < 12);
+const aoMat = mkPass(`uniform sampler2D tDepth; uniform vec4 uProj; uniform vec2 uPx; uniform float uNear; uniform float uFar; varying vec2 vUv;
+  vec3 viewPos(vec2 uv){ float d=texture2D(tDepth, uv).r; float z=(uNear*uFar)/((uFar-uNear)*d - uFar); return vec3((uv*2.0-1.0)*uProj.xy*(-z), z); }
+  void main(){
+    if (texture2D(tDepth, vUv).r >= 1.0){ gl_FragColor=vec4(1.0); return; }
+    vec3 P=viewPos(vUv);
+    // normal from whichever neighbour lies on the same surface
+    vec3 pr=viewPos(vUv+vec2(uPx.x,0.0)), pl=viewPos(vUv-vec2(uPx.x,0.0)), pu=viewPos(vUv+vec2(0.0,uPx.y)), pd=viewPos(vUv-vec2(0.0,uPx.y));
+    vec3 dx = abs(pr.z-P.z) < abs(P.z-pl.z) ? pr-P : P-pl, dy = abs(pu.z-P.z) < abs(P.z-pd.z) ? pu-P : P-pd;
+    vec3 N=normalize(cross(dx, dy));
+    const float R=3.0;
+    vec2 rad=min(R*uProj.zw*0.5/(-P.z), vec2(0.12));
+    float ang=fract(52.9829189*fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))*6.2832, ao=0.0;
+    for (int i=0;i<12;i++){
+      float t=(float(i)+0.5)/12.0, a=ang+float(i)*2.39996;
+      vec3 S=viewPos(vUv+vec2(cos(a),sin(a))*rad*sqrt(t))-P; float l=length(S);
+      ao += max(dot(N,S)/max(l,1e-3) - 0.3, 0.0) * (1.0 - smoothstep(R*0.7, R*1.5, l));
+    }
+    gl_FragColor=vec4(vec3(clamp(1.0 - ao/12.0*3.0, 0.0, 1.0)),1.0);
+  }`, { tDepth:{value:null}, uProj:{value:new THREE.Vector4()}, uPx:{value:new THREE.Vector2()}, uNear:{value:camera.near}, uFar:{value:camera.far} });
+const whiteTex = new THREE.DataTexture(new Uint8Array([255,255,255,255]), 1, 1); whiteTex.needsUpdate = true;
+const compMat = mkPass(`uniform sampler2D tScene; uniform sampler2D tBloom; uniform sampler2D tAO; uniform vec2 uAOPx; uniform float uTime; uniform float uFade; uniform float uBars;
   uniform float uAspect; uniform float uSunVis; uniform float uFlash; uniform float uGrain; uniform vec2 uSun; varying vec2 vUv;
   vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); }
   float hash(vec2 p){ vec3 p3=fract(vec3(p.xyx)*.1031); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
@@ -1458,6 +1569,9 @@ const compMat = mkPass(`uniform sampler2D tScene; uniform sampler2D tBloom; unif
     vec2 uv=vUv; vec2 cc=uv-0.5; float r2=dot(cc,cc);
     vec2 off=cc*r2*0.014;
     vec3 col=vec3(texture2D(tScene,uv-off).r, texture2D(tScene,uv).g, texture2D(tScene,uv+off).b);
+    // four bilinear taps blur the occlusion's sampling noise
+    float ao = 0.25*(texture2D(tAO,uv+uAOPx*vec2(0.75,0.25)).r + texture2D(tAO,uv+uAOPx*vec2(-0.25,0.75)).r + texture2D(tAO,uv+uAOPx*vec2(-0.75,-0.25)).r + texture2D(tAO,uv+uAOPx*vec2(0.25,-0.75)).r);
+    col *= ao;
     col += texture2D(tBloom,uv).rgb*0.6;
     vec2 d=uv-uSun; d.x*=uAspect;
     float streak=exp(-abs(d.y)*90.0)*exp(-abs(d.x)*1.6);
@@ -1474,7 +1588,7 @@ const compMat = mkPass(`uniform sampler2D tScene; uniform sampler2D tBloom; unif
     col *= uFade;
     if (uv.y<uBars || uv.y>1.0-uBars) col=vec3(0.0);
     gl_FragColor=vec4(col,1.0);
-  }`, { tScene:{value:null}, tBloom:{value:null}, uTime:{value:0}, uFade:{value:0}, uBars:{value:0}, uAspect:{value:1}, uSunVis:{value:0}, uFlash:{value:0}, uGrain:{value:reduceMotion?0.0:0.03}, uSun:{value:new THREE.Vector2(-5,-5)} });
+  }`, { tScene:{value:null}, tBloom:{value:null}, tAO:{value:whiteTex}, uAOPx:{value:new THREE.Vector2()}, uTime:{value:0}, uFade:{value:0}, uBars:{value:0}, uAspect:{value:1}, uSunVis:{value:0}, uFlash:{value:0}, uGrain:{value:reduceMotion?0.0:0.03}, uSun:{value:new THREE.Vector2(-5,-5)} });
 
 function fsPass(mat, target){ fsMesh.material=mat; renderer.setRenderTarget(target); renderer.render(fsScene, fsCam); }
 const rtOpts = (depth) => ({ type:THREE.HalfFloatType, minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter, depthBuffer:depth });
@@ -1483,6 +1597,7 @@ const rtRefl = new THREE.WebGLRenderTarget(4,4, rtOpts(true));
 const rtBright = new THREE.WebGLRenderTarget(4,4, rtOpts(false));
 const rtA = new THREE.WebGLRenderTarget(4,4, rtOpts(false));
 const rtB = new THREE.WebGLRenderTarget(4,4, rtOpts(false));
+const rtAO = new THREE.WebGLRenderTarget(4,4, rtOpts(false));
 // Ask for 24-bit depth: three.js defaults these render buffers to 16 bits, which lets the water bleed through the streets.
 [rtScene, rtRefl].forEach(rt => { rt.depthTexture = new THREE.DepthTexture(4,4); rt.depthTexture.type = THREE.UnsignedIntType; });
 waterMat.uniforms.uRefl.value = rtRefl.texture;
@@ -1493,6 +1608,7 @@ function resize(){
   renderer.setSize(W, Hh, false);
   pw=Math.max(4,Math.floor(W*DPR)); ph=Math.max(4,Math.floor(Hh*DPR));
   rtScene.setSize(pw,ph); rtRefl.setSize(pw>>1,ph>>1); rtBright.setSize(pw>>1,ph>>1); rtA.setSize(pw>>2,ph>>2); rtB.setSize(pw>>2,ph>>2);
+  rtAO.setSize(pw>>1,ph>>1); aoMat.uniforms.uPx.value.set(2/pw, 2/ph); compMat.uniforms.uAOPx.value.set(2/pw, 2/ph);
   camera.aspect=W/Hh; camera.updateProjectionMatrix();
   compMat.uniforms.uAspect.value=W/Hh;
 }
@@ -1535,6 +1651,11 @@ function render(){
   renderer.setRenderTarget(rtRefl); renderer.render(scene, reflCam);
   water.visible=true; dust.visible=true;
   renderer.setRenderTarget(rtScene); renderer.render(scene, camera);
+  if (AO_ON){
+    const pm=camera.projectionMatrix.elements, au=aoMat.uniforms;
+    au.tDepth.value=rtScene.depthTexture; au.uProj.value.set(1/pm[0], 1/pm[5], pm[0], pm[5]);
+    fsPass(aoMat, rtAO); compMat.uniforms.tAO.value=rtAO.texture;
+  }
   brightMat.uniforms.tSrc.value=rtScene.texture; fsPass(brightMat, rtBright);
   const bu=blurMat.uniforms, qx=1/(pw>>2), qy=1/(ph>>2);
   bu.tSrc.value=rtBright.texture; bu.uDir.value.set(qx,0); fsPass(blurMat, rtA);
@@ -1991,7 +2112,7 @@ function loop(now){
   frame(dt, true);
 }
 // #debug: advance the simulation by fixed steps, for capturing stills from a background tab
-if (location.hash==='#debug') window.__dbg = { U, cascades, scene, shadowScene, camera, groundMat, cityMat, waterMat, get AP(){ return AP; }, get P(){ return P; },
+if (location.hash==='#debug') window.__dbg = { U, cascades, scene, shadowScene, camera, groundMat, cityMat, waterMat, aoMat, compMat, rtAO, get AP(){ return AP; }, get P(){ return P; },
   // drop the glider into free flight at p heading along yaw, e.g. to try a bridge
   place(p, yaw){ state='play'; P.done=false; P.pos.set(p[0],p[1],p[2]); P.prev.copy(P.pos); P.yaw=yaw; P.pitch=0; P.turn=0; P.roll=0; P.speed=BASE; P.cruise=BASE; P.grace=0;
     P.fwd.set(Math.sin(yaw),0,Math.cos(yaw)); P.camPos.copy(P.fwd).multiplyScalar(-5.2).add(P.pos); P.camPos.y+=1.5; resetTrails(); },
