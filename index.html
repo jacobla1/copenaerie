@@ -207,12 +207,23 @@ const tick = () => new Promise(r => document.hidden ? r() : setTimeout(r, 20));
 function setLoad(msg, f){ $('ld-st').textContent = msg; $('ld-bar').style.width = Math.round(f*100)+'%'; performance.mark('load: '+msg); }
 
 /* ---------------------------------------------------------------- renderer */
+// Phones and tablets get a lighter city: a mobile browser tab is killed once the page holds a few hundred MB of
+// graphics memory, and the street props (kerbs, parked cars, bikes) alone are about 200 MB. ?lite=1 or ?lite=0 overrides.
+const LITE = /[?&]lite=1/.test(location.search) || (!/[?&]lite=0/.test(location.search) &&
+  (/Mobi|Android|iPhone|iPad/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform)) ||
+   (navigator.deviceMemory && navigator.deviceMemory <= 4)));
 const DPR = Math.min(window.devicePixelRatio||1, 1.5);
 const canvas = $('gl');
 let renderer;
 try { renderer = new THREE.WebGLRenderer({ canvas, antialias:false, powerPreference:'high-performance' }); }
 catch(e){ $('nogl').hidden=false; $('loader').hidden=true; return; }
 const GL2 = renderer.capabilities.isWebGL2;
+// If the browser takes the graphics away (usually out of memory), say so instead of leaving a frozen picture.
+canvas.addEventListener('webglcontextlost', e => {
+  e.preventDefault();
+  const box=$('nogl'); box.firstElementChild.textContent='The browser ran out of graphics memory and stopped the city. Tap to reload.';
+  box.hidden=false; box.style.cursor='pointer'; box.onclick=()=>location.reload();
+});
 renderer.setPixelRatio(DPR);
 renderer.toneMapping = THREE.NoToneMapping;
 const scene = new THREE.Scene();
@@ -222,7 +233,7 @@ const reflCam = new THREE.PerspectiveCamera();
 
 /* ---------------------------------------------------------------- shadows */
 // Two cascades: a sharp one around the camera and a wide one for the rest of the view.
-const SHADOW_RES = renderer.capabilities.maxTextureSize >= 4096 && GL2 ? 2048 : 1024;
+const SHADOW_RES = renderer.capabilities.maxTextureSize >= 4096 && GL2 && !LITE ? 2048 : 1024;
 const cascades = [ { size:240, ahead:90 }, { size:1700, ahead:650 } ].map(c => {
   const rt = new THREE.WebGLRenderTarget(SHADOW_RES, SHADOW_RES, { minFilter:THREE.NearestFilter, magFilter:THREE.NearestFilter, depthBuffer:true });
   rt.texture.generateMipmaps = false;
@@ -841,7 +852,15 @@ const gates = [];
 // Aerial photo tiles (tools/ortho_dk.py), one per 400 m city tile, streamed in by distance from the camera.
 // Each tile's ground and city meshes share its uniforms, so swapping a texture in or out touches nothing else.
 const PT = new Map();
-const PHOTO_MAX = (navigator.deviceMemory && navigator.deviceMemory <= 4) || /Mobi|Android/.test(navigator.userAgent) ? 6 : 12;
+const PHOTO_MAX = LITE ? 6 : 12;
+// Decode a photo for the GPU; the lite build halves a 400 m tile to 1024 px (a quarter of the memory). The decoded copy in
+// JavaScript is released as soon as the texture is uploaded.
+async function photoTex(blob, tile){
+  const bmp = LITE && tile ? await createImageBitmap(blob, { resizeWidth:1024, resizeHeight:1024, resizeQuality:'high' }) : await createImageBitmap(blob);
+  const tex=new THREE.Texture(bmp); tex.flipY=false; tex.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy()); tex.needsUpdate=true;
+  tex.onUpdate=()=>{ if (bmp.close) bmp.close(); };
+  return tex;
+}
 function photoTile(ix, iz){
   const key=ix+','+iz; let t=PT.get(key);
   if (!t){
@@ -872,8 +891,7 @@ async function loadPhoto(t){
   t.loading=true;
   try {
     const r=await fetch('data/ortho/'+t.ix+'_'+t.iz+'.webp'); if (!r.ok) throw new Error(r.status);
-    const bmp=await createImageBitmap(await r.blob());
-    const tex=new THREE.Texture(bmp); tex.flipY=false; tex.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy()); tex.needsUpdate=true;
+    const tex=await photoTex(await r.blob(), true);
     t.tex=tex; t.u.uTex.value=tex; t.u.uTexOn.value=1;
     if (!photoWant.has(t)) dropPhoto(t);
   } catch(e){ t.failed=true; }
@@ -881,7 +899,7 @@ async function loadPhoto(t){
 }
 async function loadOverview(){
   const r=await fetch('data/ortho/overview.webp'); if (!r.ok) throw new Error('aerial overview '+r.status);
-  const tex=new THREE.Texture(await createImageBitmap(await r.blob())); tex.flipY=false; tex.anisotropy=Math.min(8, renderer.capabilities.getMaxAnisotropy()); tex.needsUpdate=true;
+  const tex=await photoTex(await r.blob());
   const nx=Math.ceil((bounds[2]-bounds[0])/TILE), nz=Math.ceil((bounds[3]-bounds[1])/TILE);
   U.uOv.value=tex; U.uOvB.value.set(bounds[0], bounds[1], bounds[0]+nx*TILE, bounds[1]+nz*TILE);
 }
@@ -1451,7 +1469,7 @@ const CAR_COLS=[0xe8e8e6,0xd9dadb,0x2a2b2e,0x8d9196,0x5b6068,0x1f2f4f,0x7a1f1f,0
 // Kerbs (GeoDanmark), parked cars and bicycles (OpenStreetMap parking, placed in tools/build.mjs), street posts.
 function buildStreets(){
   const granite=[138,135,128];
-  if (city.kerb) for (const l of decodeList(city.kerb)){
+  if (city.kerb && !LITE) for (const l of decodeList(city.kerb)){
     const p=l[0];
     for (let i=0;i+3<p.length;i+=2){
       const ax=p[i], az=p[i+1], bx=p[i+2], bz=p[i+3], L=Math.hypot(bx-ax,bz-az); if (L<0.05) continue;
@@ -1463,7 +1481,7 @@ function buildStreets(){
       T.tri(t0,t2,t1); T.tri(t0,t3,t2);
     }
   }
-  const C=city.cars||[];
+  const C=LITE ? [] : city.cars||[];
   for (let i=0;i<C.length;i+=3){
     const x=C[i]/10, z=C[i+1]/10, a=C[i+2]/1000, T=nearTileFor(x,z), r=hash(x*0.71+z*1.37);
     const col=CAR_COLS[Math.floor(r*CAR_COLS.length)], len=2.05+hash(r*9.1)*0.3, glass=[30,36,44];
@@ -1479,7 +1497,7 @@ function buildStreets(){
     quad(T, [Q(b1,-bw,yb), Q(b0,-bw,yb), Q(t0,-tw,yt), Q(t1,-tw,yt)], [-side[0],0.25,-side[2]], glass, 19, 0);
     quad(T, [Q(t0,-tw,yt), Q(t1,-tw,yt), Q(t1,tw,yt), Q(t0,tw,yt)], [0,1,0], col, 19, 0);
   }
-  const K=city.bikes||[];
+  const K=LITE ? [] : city.bikes||[];
   for (let i=0;i<K.length;i+=3){
     const x=K[i]/10, z=K[i+1]/10, a=K[i+2]/1000, T=nearTileFor(x,z), r=hash(x*1.13+z*0.77);
     const frame=hex3([0x1d1f22,0x2b2d30,0x6b1e1e,0x1f3550,0xd0d0cc,0x2f4a36][Math.floor(r*6)]), tyre=[18,18,19];

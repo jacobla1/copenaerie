@@ -18,6 +18,9 @@ python3 -m http.server 8765
 - Mouse, arrow keys or WASD to steer; drag on touch screens
 - **Esc** returns to the flyby
 - **M** toggles sound
+- **N** switches between dusk and night
+
+Phones and tablets get a lighter city so the browser doesn't run out of graphics memory: no kerbs, parked cars or bikes, half-resolution aerial photo tiles and smaller shadow maps. Add `?lite=1` or `?lite=0` to the URL to force either version.
 
 Append `#debug` to the URL to expose `window.__step(seconds)`, `window.__dbg.look(position, target, fov)` and `window.__dbg.place(position, yaw)` for stepping the simulation, framing stills and dropping the glider anywhere (for example just short of a bridge). Set `window.__hold = true` to pause the normal frame loop.
 
