@@ -471,7 +471,8 @@ const cityMat = new THREE.ShaderMaterial({
           alb *= 1.0 - 0.6*gutter;
         }
         // old panes are never quite flat: each tips its reflection a little
-        gN = normalize(n + t*(r1 - 0.5)*0.08 + vec3(0.0, (r2 - 0.5)*0.06, 0.0));
+        float tip = kind > 2.5 && kind < 3.5 ? 0.2 : 1.0;  // curtain walls are flat sheets of glass
+        gN = normalize(n + t*(r1 - 0.5)*0.08*tip + vec3(0.0, (r2 - 0.5)*0.06*tip, 0.0));
         glassy = kind > 2.5 && kind < 3.5 ? 1.0 : 0.0;
       } else if (kind < 10.5){
         alb *= 0.82 + 0.18*step(0.42, fract(vW.y*3.4)) ;
@@ -1070,7 +1071,10 @@ async function generate(){
     const base = boat ? 0 : 0, top = (boat ? 0.25 : GROUND) + h;
     // facade kind and colour from BBR wall material and construction year
     let kind = 1, pal;
-    if (boat){ kind = 4; pal = PAL.boat; }
+    if (wall===96){ nextRoof(RF); nextFacade(FD); continue; }  // under a hand-built landmark
+    if (wall===97){ kind = 13; pal = [colW]; }                 // a landmark's plain stone body
+    else if (wall===98){ kind = 3; pal = [0x2c3136,0x33383d]; } // the Opera's dark glass, under its roof
+    else if (boat){ kind = 4; pal = PAL.boat; }
     else if (wall===6){ kind = 3; pal = PAL.glass; }
     else if (wall===3 || wall===7 || wall===8){ kind = h<4 ? 4 : 2; pal = PAL.concrete; }
     else if (wall===4){ kind = h<4 ? 4 : 2; pal = PAL.metal; }
@@ -1088,7 +1092,7 @@ async function generate(){
     if (rise<=0 && (roof===10 || roof===1 || roof===2)) rpal = ROOFPAL[0];
     const rc = colR>=0 ? hex3(colR) : shade(hex3(pick(rpal, r3)), 0.9+r1*0.2);
     if (rise>0) roofKind = (roof===4 || roof===9 || (roof===10 && rc[1]>rc[0])) ? 12 : 10;
-    const floors = floorsRaw>0 ? floorsRaw : Math.max(1, Math.floor(h/3.1));
+    const floors = wall===98 ? 2 : floorsRaw>0 ? floorsRaw : Math.max(1, Math.floor(h/3.1));
     const fh = clamp(h/floors, 2.5, 4.6);
     const R = nextRoof(RF), FC = nextFacade(FD);
     if (R){
@@ -1147,6 +1151,7 @@ async function generate(){
   }
 
   buildSpires();
+  buildLandmarks();
   buildLamps();
   buildChimneys();
   setLoad('Kerbs, cars and bikes', 0.62); await tick();
@@ -1424,6 +1429,100 @@ function buildChimneys(){
     walls(T, r, y1-0.12, y1, shade(c,0.55), 19, 0, 3, 0);
     cap(T, [r], y1, [30,28,27], 19, 0);
     const hi=Math.round(y1*10); rasterFill([r], j=>{ if (hi>H2[j]) H2[j]=hi; });
+  }
+}
+
+// Landmarks built by hand around the laser scan's measurements (tools/build.mjs: HAND). Rings run anticlockwise in x/z.
+function ringN(x, z, r, n, rot){ const o=new Float32Array(n*2); for (let k=0;k<n;k++){ const a=(rot||0)+k/n*Math.PI*2; o[k*2]=x+Math.cos(a)*r; o[k*2+1]=z+Math.sin(a)*r; } return o; }
+function cyl(T, x, z, r, y0, y1, n, c, kind, rot){ const g=ringN(x,z,r,n,rot); walls(T, g, y0, y1, c, kind, 0.3, 3, 0); return g; }
+// a surface of revolution through [radius, height] points, bottom up
+function lathe(T, x, z, prof, n, c, kind, rot){
+  for (let k=0;k+1<prof.length;k++){
+    const [r0,y0]=prof[k], [r1,y1]=prof[k+1], A=ringN(x,z,r0,n,rot), Bq=ringN(x,z,Math.max(r1,0.001),n,rot);
+    for (let e=0;e<n;e++){ const f=(e+1)%n; slope(T, A[e*2],A[e*2+1], A[f*2],A[f*2+1], Bq[f*2],Bq[f*2+1], Bq[e*2],Bq[e*2+1], y0, y1, c, kind, 0.3); }
+  }
+}
+function crown(T, x, z, r, y, gold){
+  cyl(T, x, z, r, y, y+0.55, 16, gold, 14);
+  for (let k=0;k<8;k++){ const a=k/8*Math.PI*2, ca=Math.cos(a), sa=Math.sin(a), tx=-sa*0.28, tz=ca*0.28, px=x+ca*r, pz=z+sa*r;
+    quad(T, [[px-tx,y+0.55,pz-tz],[px+tx,y+0.55,pz+tz],[px,y+1.05,pz],[px,y+1.05,pz]], [ca,0,sa], gold, 14, 0); }
+  lathe(T, x, z, [[r*0.92,y+0.55],[r*0.95,y+1.0],[r*0.75,y+1.5],[r*0.35,y+1.85],[0.12,y+2.0]], 8, gold, 14);
+}
+function buildLandmarks(){
+  const H=city.hand; if (!H) return;
+  const gold=hex3(0xc9a043), copper=hex3(0x6f9f8c), dark=[40,42,44];
+  const solid=(x,z,r,top)=>rasterFill([ringN(x,z,r,12)], j=>{ const v=Math.round(top*10); if (v>H2[j]) H2[j]=v; });
+  if (H.marble){ // Frederik's Church: rotunda, a drum of paired columns, the copper dome with gilded ribs, the lantern
+    const [x,z]=H.marble, T=tileFor(x,z), G0=GROUND, stone=[212,203,186], col=[228,222,208];
+    cyl(T, x, z, 26.4, G0, G0+18, 48, stone, 13); cap(T, [ringN(x,z,26.4,48)], G0+18, [150,146,140], 19, 0);
+    cyl(T, x, z, 17.6, G0+18, G0+31.2, 40, [200,190,172], 13);
+    for (let k=0;k<12;k++) for (const d of [-0.07,0.07]){ const a=k/12*Math.PI*2+d+0.13; box(T, x+Math.cos(a)*18.4, z+Math.sin(a)*18.4, a, 0.5, 0.5, G0+18, G0+30, col, 13); }
+    cyl(T, x, z, 19.0, G0+30, G0+31.4, 40, col, 13); cap(T, [ringN(x,z,19.0,40)], G0+31.4, col, 13, 0);
+    const dome=[[18.6,31.2],[17.6,34.6],[16.4,37.6],[15,40.8],[13.4,43.6],[11.6,46.1],[9.4,48.6],[7,50.8],[4.6,52.6],[4.2,53.2]].map(([r,y])=>[r,G0+y]);
+    lathe(T, x, z, dome, 40, copper, 14);
+    for (let k=0;k<12;k++){ const a=k/12*Math.PI*2+0.13, ca=Math.cos(a), sa=Math.sin(a), w=0.32;
+      for (let j=0;j+1<dome.length;j++){ const [r0,y0]=dome[j], [r1,y1]=dome[j+1], P=(r,y,s)=>[x+ca*(r+0.12)-sa*s, y+0.05, z+sa*(r+0.12)+ca*s];
+        quad(T, [P(r0,y0,-w),P(r0,y0,w),P(r1,y1,w),P(r1,y1,-w)], [ca,(r0-r1)/Math.max(0.1,y1-y0),sa], gold, 14, 0); } }
+    cyl(T, x, z, 4.0, G0+53, G0+60.2, 16, col, 13);
+    for (let k=0;k<8;k++){ const a=k/8*Math.PI*2; box(T, x+Math.cos(a)*4.25, z+Math.sin(a)*4.25, a, 0.25, 0.25, G0+53, G0+60, [236,230,216], 13); }
+    lathe(T, x, z, [[4.3,G0+60.2],[3.6,G0+62],[2.0,G0+63.6],[0.8,G0+64.4]], 16, copper, 14);
+    lathe(T, x, z, [[0.8,G0+64.4],[0.55,G0+66],[0.06,G0+73.6]], 8, gold, 14);
+    solid(x,z,26.4,G0+18); solid(x,z,18.6,G0+40); solid(x,z,4.4,G0+62);
+  }
+  if (H.chborg){ // Christiansborg: granite tower, copper spire with an open lantern, crowned three times
+    const [x,z,ang]=H.chborg, T=tileFor(x,z), G0=GROUND, granite=[152,146,139], rot=ang+Math.PI/4;
+    walls(T, ringN(x,z,8.0*Math.SQRT2,4,rot), G0, G0+42.5, granite, 13, 0.4, 4, 0);
+    walls(T, ringN(x,z,8.5*Math.SQRT2,4,rot), G0+42.5, G0+44, [170,164,156], 13, 0.4, 4, 0);
+    lathe(T, x, z, [[8.5*Math.SQRT2,G0+44],[6.6*Math.SQRT2,G0+50.5],[5.2*Math.SQRT2,G0+52.5]], 4, copper, 14, rot);
+    cyl(T, x, z, 4.9, G0+52.5, G0+60, 8, copper, 14, ang);
+    cyl(T, x, z, 4.6, G0+60, G0+67, 8, dark, 19, ang);                           // the open lantern
+    for (let k=0;k<8;k++){ const a=ang+k/8*Math.PI*2; box(T, x+Math.cos(a)*4.75, z+Math.sin(a)*4.75, a, 0.35, 0.35, G0+60, G0+67, copper, 14); }
+    cyl(T, x, z, 5.0, G0+67, G0+71.5, 8, copper, 14, ang);
+    lathe(T, x, z, [[5.0,G0+71.5],[5.3,G0+73],[4.4,G0+76],[2.6,G0+78.6],[2.1,G0+79.5]], 8, copper, 14, ang);
+    cyl(T, x, z, 2.2, G0+79.5, G0+85.2, 8, copper, 14, ang);
+    crown(T, x, z, 2.05, G0+85.2, gold);
+    cyl(T, x, z, 1.4, G0+87.2, G0+91.2, 8, copper, 14, ang); crown(T, x, z, 1.7, G0+91.2, gold);
+    cyl(T, x, z, 1.1, G0+93.2, G0+96.2, 8, copper, 14, ang); crown(T, x, z, 1.35, G0+96.2, gold);
+    lathe(T, x, z, [[0.5,G0+98.2],[0.05,G0+104.6]], 6, gold, 14);
+    solid(x,z,8.5,G0+44); solid(x,z,5,G0+79); solid(x,z,2.2,G0+98);
+  }
+  if (H.cityhall){ // City Hall: brick tower, gallery, slender copper spire
+    const [x,z,ang]=H.cityhall, T=tileFor(x,z), G0=GROUND, brick=[170,90,64], rot=ang+Math.PI/4;
+    walls(T, ringN(x,z,6.2*Math.SQRT2,4,rot), G0, G0+63, brick, 13, 0.5, 4, 0);
+    walls(T, ringN(x,z,6.6*Math.SQRT2,4,rot), G0+63, G0+64.2, [196,186,168], 13, 0.5, 4, 0);
+    walls(T, ringN(x,z,5.4*Math.SQRT2,4,rot), G0+64.2, G0+70, brick, 13, 0.5, 4, 0);
+    cap(T, [ringN(x,z,6.0*Math.SQRT2,4,rot)], G0+70.3, dark, 19, 0);
+    walls(T, ringN(x,z,6.0*Math.SQRT2,4,rot), G0+70, G0+70.3, dark, 19, 0, 3, 0);
+    lathe(T, x, z, [[4.6,G0+70.3],[3.3,G0+79],[2.1,G0+88],[1.1,G0+93],[0.18,G0+103.4]], 8, copper, 14, ang+Math.PI/8);
+    lathe(T, x, z, [[0.3,G0+103.2],[0.05,G0+105.6]], 6, gold, 14);
+    solid(x,z,6.2,G0+70); solid(x,z,2.4,G0+90);
+  }
+  if (H.rund){ // the Round Tower: brick, a railed platform, the observatory
+    const [x,z]=H.rund, T=tileFor(x,z), G0=GROUND, brick=[150,78,56];
+    cyl(T, x, z, 7.9, G0, G0+34.8, 40, brick, 13);
+    walls(T, ringN(x,z,8.05,40), G0+33.9, G0+34.8, [196,180,160], 13, 0.3, 3, 0);
+    cap(T, [ringN(x,z,8.05,40)], G0+34.8, [118,110,100], 19, 0);
+    for (let k=0;k<40;k++){ const a=k/40*Math.PI*2; box(T, x+Math.cos(a)*7.75, z+Math.sin(a)*7.75, a, 0.04, 0.04, G0+34.8, G0+35.9, [28,28,30]); }
+    cyl(T, x, z, 7.75, G0+35.8, G0+35.9, 40, [28,28,30], 19);
+    for (let k=0;k<14;k++){ const a=k*2.1, y=G0+4+k*2.1, ca=Math.cos(a), sa=Math.sin(a), tx=-sa*0.45, tz=ca*0.45, px=x+ca*7.92, pz=z+sa*7.92;
+      quad(T, [[px-tx,y,pz-tz],[px+tx,y,pz+tz],[px+tx,y+1.6,pz+tz],[px-tx,y+1.6,pz-tz]], [ca,0,sa], [26,24,24], 19, 0); }
+    cyl(T, x, z, 3.4, G0+34.8, G0+38.6, 20, [120,112,104], 13);
+    lathe(T, x, z, [[3.5,G0+38.6],[3.3,G0+40],[2.4,G0+41.6],[0.6,G0+42.5]], 20, [150,156,160], 14);
+    solid(x,z,7.9,G0+35.9);
+  }
+  if (H.opera){ // the Opera: the flat roof slab running out over the quay, and the fly tower
+    const [R, F]=H.opera, [cx,cz,ang,u0,u1,v0,v1,top]=R, ca=Math.cos(ang), sa=Math.sin(ang), P=(u,v)=>[cx+u*ca-v*sa, cz+u*sa+v*ca];
+    const y1=GROUND+top+0.35, y0=y1-1.7, T=tileFor(cx,cz);
+    let rr=new Float32Array([...P(u0,v0),...P(u1,v0),...P(u1,v1),...P(u0,v1)]); if (ringArea(rr)<0) rr=new Float32Array([...P(u0,v1),...P(u1,v1),...P(u1,v0),...P(u0,v0)]);
+    walls(T, rr, y0, y1, [226,224,218], 19, 0, 3, 0);
+    cap(T, [rr], y1, [200,200,200], 17, 0);
+    const n=rr.length/2, base=T.n; for (let k=0;k<n;k++) T.vert(rr[k*2], y0, rr[k*2+1], 0,-1,0, [196,176,140], 0,0,3,0, 19,0,0);
+    T.tri(base, base+1, base+2); T.tri(base, base+2, base+3);  // the underside, facing down
+    const [fx,fz]=[F[0],F[1]], fr=Math.max(F[4]-F[3], F[6]-F[5])/2, rot=ang+Math.PI/4;
+    walls(T, ringN(fx,fz,fr*Math.SQRT2,4,rot), y1-2, GROUND+F[7], [188,188,184], 13, 0.6, 5, 0);
+    cap(T, [ringN(fx,fz,fr*Math.SQRT2,4,rot)], GROUND+F[7], [170,170,168], 19, 0);
+    rasterFill([rr], j=>{ const v=Math.round(y1*10); if (v>H2[j]) H2[j]=v; });
+    rasterFill([ringN(fx,fz,fr*Math.SQRT2,4,rot)], j=>{ const v=Math.round((GROUND+F[7])*10); if (v>H2[j]) H2[j]=v; });
   }
 }
 

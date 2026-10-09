@@ -220,6 +220,31 @@ for (let i=lms.length-1; i>=0; i--){
 }
 // the church body is red brick too; the oblique photos see mostly its sandstone trim, so its photo colours are skipped
 for (const b of blds) if (HAND_SPIRES.some(h=>Math.hypot(b.cx-h.x, b.cz-h.z)<30 && Math.abs(b.A)>800)){ b.colW=HAND_SPIRES[0].colour; b.noFacade=true; }
+// Landmarks modelled by hand in index.html (buildLandmarks), centred on the laser scan's highest point. Their OSM parts
+// within `drop` metres go, the laser roofs leave a circle of `skip` metres for them, and the building records under
+// them are restyled (wall 97: plain stone, no windows) or hidden (wall 96). The square towers take their turn from the
+// largest OSM part they replace.
+const HAND = [
+  { id:'marble',   x:336.1,  z:-560.6, drop:24,  skip:24,  body:{ r:30, minA:1500, wall:97, colour:0xd2c8b6 } },
+  { id:'chborg',   x:-189.0, z:442.8,  drop:12,  skip:9.5 },
+  { id:'cityhall', x:-810.6, z:547.5,  drop:6.5, skip:6.5 },
+  { id:'rund',     x:-507.7, z:-114.0, drop:9,   skip:8.6, hide:8 },
+];
+const hand = {};
+for (const h of HAND){
+  let ang=0, big=0;
+  for (let i=lms.length-1; i>=0; i--){
+    const l=lms[i], [cx,cz]=centroid(l.r); if (Math.hypot(cx-h.x, cz-h.z)>=h.drop) continue;
+    const A=Math.abs(area(l.r)); if (A>big && l.r.length<=6){ big=A; let bl=0; for (let k=0;k<l.r.length;k++){ const a=l.r[k], b=l.r[(k+1)%l.r.length], L=Math.hypot(b[0]-a[0], b[1]-a[1]); if (L>bl){ bl=L; ang=Math.atan2(b[1]-a[1], b[0]-a[0]); } } }
+    lms.splice(i,1);
+  }
+  hand[h.id]=[h.x, h.z, +ang.toFixed(4)];
+  for (const b of blds){
+    const d=Math.hypot(b.cx-h.x, b.cz-h.z);
+    if (h.hide && d<h.hide){ b.wall=96; b.noFacade=true; }
+    else if (h.body && d<h.body.r && Math.abs(b.A)>h.body.minA){ b.wall=h.body.wall; b.colW=h.body.colour; b.noFacade=true; }
+  }
+}
 lms.sort((a,b)=>a.top-b.top);
 for (const l of lms) fillPoly([l.r], i=>{ const v=l.shape?l.eave+(l.top-l.eave)*0.5:l.top; if (v>HR[i]) HR[i]=v; });
 console.log('landmark parts', lms.length);
@@ -242,6 +267,30 @@ if (fs.existsSync(path.join(DK, 'ndsm.json'))){
   roofOpts.tol = 0.8;
   const G = loadNdsm(DK, ORIGIN);
   const LM = new Uint8Array(RW*RH); for (const l of lms) fillPoly([l.r], i=>{ LM[i]=1; });
+  for (const h of HAND){ const n=48, c=[]; for (let k=0;k<n;k++){ const a=k/n*Math.PI*2; c.push([h.x+Math.cos(a)*h.skip, h.z+Math.sin(a)*h.skip]); } fillPoly([c], i=>{ LM[i]=1; }); }
+  // The Opera's roof is one flat slab that runs some 30 m out over the quay: fit a rectangle to the laser cells at roof
+  // height around it, and the fly tower to the cells above that. Its buildings become dark glass under the slab.
+  {
+    const fit=(lo, hi, cx, cz, R)=>{
+      const P=[], H=[];
+      for (let z=cz-R; z<cz+R; z+=0.8) for (let x=cx-R; x<cx+R; x+=0.8){
+        const c=Math.floor((x-G.x0)/G.res), r=Math.floor((z-G.z0)/G.res); if (c<0||r<0||c>=G.w||r>=G.h) continue;
+        const v=G.a[r*G.w+c]/100; if (v>lo && v<hi && Math.hypot(x-cx, z-cz)<R){ P.push([x,z]); H.push(v); }
+      }
+      const mx=P.reduce((s,p)=>s+p[0],0)/P.length, mz=P.reduce((s,p)=>s+p[1],0)/P.length;
+      let sxx=0, sxz=0, szz=0; for (const p of P){ const dx=p[0]-mx, dz=p[1]-mz; sxx+=dx*dx; sxz+=dx*dz; szz+=dz*dz; }
+      const ang=0.5*Math.atan2(2*sxz, sxx-szz), ca=Math.cos(ang), sa=Math.sin(ang);
+      const us=P.map(p=>(p[0]-mx)*ca+(p[1]-mz)*sa).sort((a,b)=>a-b), vs=P.map(p=>-(p[0]-mx)*sa+(p[1]-mz)*ca).sort((a,b)=>a-b);
+      const q=(a,f)=>a[Math.floor(a.length*f)], hs=H.slice().sort((a,b)=>a-b);
+      return [+mx.toFixed(2), +mz.toFixed(2), +ang.toFixed(4), +q(us,0.01).toFixed(2), +q(us,0.99).toFixed(2), +q(vs,0.01).toFixed(2), +q(vs,0.99).toFixed(2), +q(hs,0.5).toFixed(2)];
+    };
+    const roof=fit(20, 45, 1065, -258, 110), fly=fit(36, 45, 1065, -258, 110);
+    hand.opera=[roof, fly];
+    const ca=Math.cos(roof[2]), sa=Math.sin(roof[2]), inRoof=(x,z)=>{ const u=(x-roof[0])*ca+(z-roof[1])*sa, v=-(x-roof[0])*sa+(z-roof[1])*ca; return u>roof[3] && u<roof[4] && v>roof[5] && v<roof[6]; };
+    for (const b of blds) if (inRoof(b.cx, b.cz)){ b.wall=98; b.noFacade=true; }
+    for (let i=lms.length-1; i>=0; i--){ const [cx,cz]=centroid(lms[i].r); if (inRoof(cx,cz)) lms.splice(i,1); }
+    console.log('opera roof', roof.join(' '), 'fly tower', fly.join(' '));
+  }
   const skip = (x,z) => { const ix=Math.floor(x-RX0), iz=Math.floor(z-RZ0); return ix>=0 && iz>=0 && ix<RW && iz<RH && LM[iz*RW+ix]===1; };
   let nt=0, np=0, t0=Date.now();
   roofs = blds.map(b => {
@@ -523,7 +572,7 @@ const TR=[]; for (const t of trees) TR.push(dm(t[0]), dm(t[1]), dm(t[2]), dm(t[3
 // chimneys found in the laser scan (tools/roofs.mjs): x, z, base, top, width, depth in decimetres, angle in milliradians
 const CH=[]; if (roofs) for (const r of roofs) if (r) for (const c of r.chims) CH.push(dm(c[0]), dm(c[1]), dm(c[2]), dm(c[3]), dm(c[4]), dm(c[5]), Math.round(c[6]*1000));
 console.log('chimneys', CH.length/7);
-const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), spans:SP, lamps:LP, trees:TR, chim:CH,
+const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), spans:SP, lamps:LP, trees:TR, chim:CH, hand,
   kerb:encList(kerbs.map(l=>[l])), mast:masts.flat().map(dm), paved:encList(paved),
   cars:cars.flatMap(c=>[dm(c[0]), dm(c[1]), Math.round(c[2]*1000)]), bikes:bikes.flatMap(c=>[dm(c[0]), dm(c[1]), Math.round(c[2]*1000)]) };
 const json = JSON.stringify(city);
