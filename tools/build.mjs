@@ -232,6 +232,7 @@ const HAND = [
   { id:'slotskirke', x:-256.6, z:351.6, drop:14, skip:11.5 },
   { id:'holmens',  x:11.6,   z:387.3,  drop:6,   skip:3.2 },
   { id:'kgldome',  x:162.7,  z:81.9,   drop:0,   skip:25 },
+  { id:'skuetower', x:680.7, z:-25.9,  drop:0,   skip:21 },
 ];
 const hand = {};
 for (const h of HAND){
@@ -265,30 +266,36 @@ for (const h of HAND){
   }
   for (const b of blds) if (Math.hypot(b.cx+256.2, b.cz-353.2)<6 || Math.hypot(b.cx+222.9, b.cz-371.5)<6){ b.colW=0xdcd3c4; b.noFacade=true; }
 }
-// Det Kongelige Teater (Gamle Scene, 1874) is pale sandstone; Skuespilhuset (2008) is near-black brick over a glazed
-// ground floor, with its stage tower in the same brick; its laser roof and tower are drawn in one grey, as the aerial
-// photo smears down the tower's sides.
+// Det Kongelige Teater (Gamle Scene, 1874) is pale sandstone; Skuespilhuset (2008) is plain dark brick over a glazed
+// ground floor, with a ribbon of glass round its top floor; its laser roof is drawn in one dark grey, and its stage
+// tower is built by hand in banded brown brick.
 {
   const kt=blds.find(b=>Math.hypot(b.cx-160.4, b.cz-70.6)<12 && Math.abs(Math.abs(b.A)-3139)<200);
   if (kt){ kt.colW=0xc9b896; kt.noFacade=true; hand.teater=[147.35, 40.9, Math.atan2(-9.8, 25.5)]; }
   const sh=blds.find(b=>b.year===2007 && Math.abs(Math.abs(b.A)-6744)<300 && Math.hypot(b.cx-685, b.cz+33)<40);
-  if (sh){ sh.colW=0x3b3330; sh.noFacade=true; (hand.roofCol=hand.roofCol||[]).push([+sh.cx.toFixed(1), +sh.cz.toFixed(1), 0x6a6866]); hand.glass=[sh.rings[0].flat().map(v=>+v.toFixed(1))]; }
+  const sh2=blds.find(b=>b.year===2007 && Math.abs(Math.abs(b.A)-704)<60 && Math.hypot(b.cx-718.5, b.cz+17.6)<20);
+  hand.glass=[];
+  for (const b of [sh, sh2]) if (b){ b.colW=0x4a423d; b.wall=97; b.noFacade=true; b.h=14; b.keepH=true; b.flatTop=14.6;
+    (hand.roofCol=hand.roofCol||[]).push([+b.cx.toFixed(1), +b.cz.toFixed(1), 0x6a6866]); hand.glass.push(b.rings[0].flat().map(v=>+v.toFixed(1))); }
 }
 // Colours from the oblique photos where OSM's parts carry none (they would get a random palette) or the wrong one:
 // Rosenborg is red brick under green copper, Amalienborg's palaces pale stone, Holmens Kirke red brick.
 {
   const RECOL = [
     { x:-429, z:-600, r:45, wc:0x6e3e30, rc:0x76a07c, map:{ [0xc1d5ca]:0x76a07c, [0xc48a58]:0x6e3e30 } },
-    { x:566,  z:-467, r:125, wc:0xd6cdbd },
   ];
   for (const o of RECOL) for (const l of lms){ const [cx,cz]=centroid(l.r); if (Math.hypot(cx-o.x, cz-o.z)>=o.r) continue;
     l.wc = o.map && o.map[l.wc]!==undefined ? o.map[l.wc] : l.wc<0 ? o.wc : l.wc;
     if (o.rc!==undefined) l.rc = o.map && o.map[l.rc]!==undefined ? o.map[l.rc] : l.rc<0 ? o.rc : l.rc; }
   const ros=blds.find(b=>Math.hypot(b.cx+429.1, b.cz+600.5)<6 && b.year===1606);
   if (ros){ ros.colW=0x6e3e30; ros.colR=0x76a07c; ros.noFacade=true; (hand.roofCol=hand.roofCol||[]).push([+ros.cx.toFixed(1), +ros.cz.toFixed(1), 0x82a684]); }
-  for (const b of blds) if (b.year>=1750 && b.year<=1760 && b.colW===0xdecbb7 && Math.hypot(b.cx-566, b.cz+467)<125){ b.colW=0xd6cdbd; b.noFacade=true; }
-  const hol=blds.find(b=>Math.hypot(b.cx-11.6, b.cz-388.4)<6 && b.year===1619);
-  if (hol){ hol.colW=0x985440; hol.noFacade=true; }
+  // Amalienborg's four palaces: OSM's parts stood over them as blank blocks up to 27 m; they go, so the laser scan gives
+  // the slate roofs, and the palaces get their own rows of windows
+  for (const b of blds) if (b.year>=1750 && b.year<=1760 && Math.hypot(b.cx-566, b.cz+467)<125 && (b.colW===0xdecbb7 || Math.abs(b.A)>1200)){
+    b.colW=0xd6cdbd; b.noFacade=true; if (Math.abs(b.A)>1200){ b.wall=93; b.floors=3; } }
+  for (let i=lms.length-1; i>=0; i--){ const [cx,cz]=centroid(lms[i].r); if (Math.hypot(cx-566, cz+467)<125) lms.splice(i,1); }
+  const hol=blds.find(b=>Math.hypot(b.cx-11.6, b.cz-388.4)<20 && b.year===1619 && Math.abs(Math.abs(b.A)-1170)<100);
+  if (hol){ hol.colW=0x985440; hol.noFacade=true; hol.wall=92; hol.floors=1; }
 }
 // Den Sorte Diamant (1999): the black granite block leans out over the quay, so its record's vertical walls and the
 // laser roof draped down them read as a striped box. It is built by hand from the laser scan and the oblique photos;
