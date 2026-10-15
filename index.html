@@ -1962,7 +1962,7 @@ function buildLandmarks(){
   rider(571.5, -463.8, Math.atan2(-463.8+560.6, 571.5-336.1), 4.6, [214,210,200], [84,124,108]);
   if (H.slotskirke) buildSlotsholmen(H.slotskirke);
   if (H.teater) buildTeater(H.teater);
-  if (H.holmens) buildHolmens(H.holmens);
+  if (H.holmens){ buildHolmens(H.holmens); buildHolmensGables(); }
   if (H.kgldome) buildTeaterDome(H.kgldome);
   if (H.natbank) buildNatbank(H.natbank);
   if (H.diamant) buildDiamant(H.diamant);
@@ -1979,6 +1979,43 @@ function buildSkueTower(){
   walls(T, r, GROUND+12, y1, [104,88,76], 13, 0.4, 3, 0);
   cap(T, [r], y1, [150,150,150], 17, 0);
   rasterFill([r], j=>{ const v=Math.round(y1*10); if (v>H2[j]) H2[j]=v; });
+}
+// Holmens Kirke's four gables, one at the end of each arm of its cross, fitted to the laser scan (eaves at 10.4 m, the
+// roof's apex at 18.5 m, the crown to 21.3 m) and the oblique photos: Dutch Renaissance, the brick stepped in three
+// stages with sandstone scrolls, cornices, pilasters, obelisk finials and a round window
+function buildHolmensGables(){
+  const G0=GROUND, brick=[152,84,64], sand=[214,202,176], E=10.4, H=8.1;
+  const GABLES=[[[-10,378.5],[-0.5,367.8]], [[23.5,364.9],[33.7,374.1]], [[33.7,398],[24.2,408.6]], [[-0.4,412.4],[-11,403.3]]];
+  for (const [a,b] of GABLES){
+    const dx=b[0]-a[0], dz=b[1]-a[1], L=Math.hypot(dx,dz), ux=dx/L, uz=dz/L, nx=dz/L, nz=-dx/L, mx=(a[0]+b[0])/2, mz=(a[1]+b[1])/2, T=tileFor(mx,mz);
+    const M=(s,y,d)=>[mx+ux*s+nx*d, G0+y, mz+uz*s+nz*d], d1=0.55, d0=-0.7, df=d1+0.03;   // proud of the roof's verge
+    // the outline in the gable's own (s, y): the right half going up, each step's scroll a quarter circle, then the
+    // round-topped crown; mirrored for the left half
+    const W2=L/2, hw=[W2, W2*0.7, W2*0.45, W2*0.2], ys=[E+0.3*H, E+0.6*H, E+0.88*H], half=[[W2, E-0.2]];
+    for (let k=0;k<3;k++){ half.push([hw[k], ys[k]]); const r=hw[k]-hw[k+1]; for (let j=1;j<=6;j++){ const t=j/6*Math.PI/2; half.push([hw[k+1]+r*Math.cos(t), ys[k]+r*Math.sin(t)]); } }
+    const yc=ys[2]+hw[2]-hw[3]+0.6, top=yc+hw[3];
+    half.push([hw[3], yc]); for (let j=1;j<6;j++){ const t=j/6*Math.PI/2; half.push([hw[3]*Math.cos(t), yc+hw[3]*Math.sin(t)]); }
+    const outline=[...half, [0, top], ...half.slice().reverse().map(([s,y])=>[-s,y])];
+    // the brick face and its back over the roof, closed round the edge in sandstone
+    facePoly(T, outline, (s,y)=>M(s,y,d1), [nx,0,nz], brick, 13);
+    facePoly(T, outline, (s,y)=>M(s,y,d0), [-nx,0,-nz], brick, 13);
+    for (let i=0;i<outline.length;i++){ const p=outline[i], q=outline[(i+1)%outline.length], ds=q[0]-p[0], dy=q[1]-p[1], l=Math.hypot(ds,dy); if (l<1e-3) continue;
+      quad(T, [M(p[0],p[1],d1), M(q[0],q[1],d1), M(q[0],q[1],d0), M(p[0],p[1],d0)], [ux*dy/l, -ds/l, uz*dy/l], sand, 19, 0); }
+    // sandstone on the face: the scrolls, a cornice at each step, pilasters, the round window and two small windows
+    const rect=(s0,s1,y0,y1)=>quad(T, [M(s0,y0,df), M(s1,y0,df), M(s1,y1,df), M(s0,y1,df)], [nx,0,nz], sand, 19, 0);
+    for (let k=0;k<3;k++){ const r=hw[k]-hw[k+1];
+      for (const sg of [1,-1]){ const sc=[[hw[k+1]*sg, ys[k]], [hw[k]*sg, ys[k]]]; for (let j=1;j<=6;j++){ const t=j/6*Math.PI/2; sc.push([(hw[k+1]+r*Math.cos(t))*sg, ys[k]+r*Math.sin(t)]); }
+        facePoly(T, sg>0 ? sc : sc.slice().reverse(), (s,y)=>M(s,y,df), [nx,0,nz], sand, 19); } }
+    rect(-W2, W2, E-0.25, E+0.15);
+    rect(-hw[0], hw[0], ys[0]-0.3, ys[0]); rect(-hw[1], hw[1], ys[1]-0.3, ys[1]); rect(-hw[2], hw[2], ys[2]-0.25, ys[2]);
+    for (const sg of [1,-1]){ rect(sg*hw[1]*0.62-0.18, sg*hw[1]*0.62+0.18, E+0.15, ys[0]-0.3); rect(sg*hw[2]*0.8-0.16, sg*hw[2]*0.8+0.16, ys[0], ys[1]-0.3); }
+    const oc=M(0, (ys[0]+ys[1])/2, 0); disc(T, oc[0], oc[1], oc[2], nx, nz, 0.95, sand, df+0.02); disc(T, oc[0], oc[1], oc[2], nx, nz, 0.68, [34,32,30], df+0.05);
+    for (const sg of [1,-1]){ const w=M(sg*W2*0.42, E+0.55, 0); opening(T, w[0], w[1], w[2], nx, nz, 0.8, 1.5, true, sand); }
+    // obelisks on the corners of each step, a ball on the crown
+    for (const [s0,y0] of [[hw[0],ys[0]],[hw[1],ys[1]],[hw[2],ys[2]]]) for (const sg of [1,-1]){ const f=M(s0*sg-0.15*sg, y0, (d1+d0)/2);
+      lathe(T, f[0], f[2], [[0.17,f[1]],[0.17,f[1]+0.3],[0.11,f[1]+0.33],[0.02,f[1]+1.1]], 4, sand, 19, Math.atan2(uz,ux)+Math.PI/4); }
+    const c=M(0, top, (d1+d0)/2); lathe(T, c[0], c[2], [[0.08,c[1]-0.05],[0.08,c[1]+0.35]], 4, sand, 19); ball(T, c[0], c[1]+0.6, c[2], 0.26, sand, 19, 8);
+  }
 }
 // Holmens Kirke's flèche over the crossing, fitted to the laser scan and the oblique photos: an octagonal copper base
 // with a railing on the ridge at 17.5 m, a bell-shaped cap, an open lantern on slim posts, a second bulb, the spire to 30.6 m
