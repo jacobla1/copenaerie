@@ -337,7 +337,7 @@ const depthMat = new THREE.ShaderMaterial({ vertexShader:`void main(){ gl_Positi
 
 /* ---------------------------------------------------------------- materials */
 // Buildings, landmarks, quays and bridges share one shader; aInfo.x picks the surface kind.
-//   1 classic facade, 2 modern facade, 3 glass, 4 plain/shed, 10 tiled roof, 11 flat roof, 12 metal roof,
+//   1 classic facade, 2 modern facade, 3 glass, 4 plain/shed, 5 Christiansborg's palace, 6 black stone and glass, 10 tiled roof, 11 flat roof, 12 metal roof,
 //   13 landmark masonry, 14 landmark copper, 15 granite quay, 16 bridge, 17 roof or deck draped with the aerial photo,
 //   18 street lamp glow, 19 plain matte (chimneys, gutters, small street furniture)
 const cityVS = `attribute vec4 aWin; attribute vec4 aInfo; attribute vec3 aCol;
@@ -372,9 +372,15 @@ const cityMat = new THREE.ShaderMaterial({
         n = normalize(n + (fn.y < 0.0 ? -fn : fn)*0.35);
         // a little more contrast than the hazy photo has, so slates, tiles and their shadows read
         alb = pow(pho, vec3(1.12))*1.08;
-      } else if (kind < 4.5){
+      } else if (kind < 6.5){
+        // 5: Christiansborg's palace, a classic facade with its own five rows of windows (pS scales them to the eave);
+        // 6: polished black stone and dark glass (Den Sorte Diamant), a curtain wall with no rooms showing
+        bool palace = kind > 4.5 && kind < 5.5, dark = kind > 5.5;
+        if (dark) kind = 3.0;
+        float pS = palace ? (vInfo.w > 10.0 ? vInfo.w/10.0 : 19.9)/19.9 : 1.0;
+        if (palace) kind = 1.0;
         float L = vWin.w, fh = vWin.z;
-        float spacing = kind > 1.5 ? 2.3 : 3.1;
+        float spacing = palace ? 3.6 : dark ? 7.0 : kind > 1.5 ? 2.3 : 3.1;
         float nc = max(1.0, floor((L-0.6)/spacing)), cs = L/nc;
         float ci = floor(vWin.x/cs), fx = vWin.x/cs - ci;
         float fl = floor(h/fh), fy = h/fh - fl;
@@ -382,11 +388,21 @@ const cityMat = new THREE.ShaderMaterial({
         float hw = kind > 2.5 ? 0.47 : (kind > 1.5 ? 0.38 : 0.21);
         float y0 = fl < 0.5 ? 0.08 : 0.30, y1 = fl < 0.5 ? 0.86 : 0.82;
         if (kind > 2.5 && kind < 3.5){ y0 = 0.04; y1 = 0.96; }
+        if (dark){ hw = 0.5; y0 = 0.3; y1 = 0.92; }   // unbroken bands of glass between bands of stone
+        if (palace){
+          // rusticated ground floor and its small mezzanine windows, the tall windows of the main floor under their hoods,
+          // the second floor, and small attic windows under the cornice; each row is a band with the window inside it
+          float r = h/pS;
+          vec4 b = r < 4.2 ? vec4(0.0, 4.2, 1.0, 3.6) : r < 6.2 ? vec4(4.2, 6.2, 4.4, 5.4) : r < 12.2 ? vec4(6.2, 12.2, 7.0, 11.0) : r < 16.1 ? vec4(12.2, 16.1, 12.6, 15.6) : vec4(16.1, 19.9, 16.5, 17.7);
+          fl = r < 4.2 ? 0.0 : r < 6.2 ? 1.0 : r < 12.2 ? 2.0 : r < 16.1 ? 3.0 : 4.0;
+          b *= pS; fh = b.y - b.x; fy = (h - b.x)/fh; y0 = (b.z - b.x)/fh; y1 = (b.w - b.x)/fh; wy = fwH/fh;
+          hw = fl == 1.0 || fl == 4.0 ? 0.16 : 0.2;
+        }
         // older blocks of four or more storeys: shopfronts on the ground floor, under a painted sign board
-        bool shop = kind < 1.5 && floors > 3.5 && fl < 0.5;
+        bool shop = !palace && kind < 1.5 && floors > 3.5 && fl < 0.5;
         if (shop){ hw = 0.38; y0 = 0.05; y1 = 0.72; }
         // one street door per wall run
-        bool isDoor = kind < 2.5 && !shop && fl < 0.5 && nc > 1.5 && abs(ci - floor(hash12(vec2(seed*3.7, L))*nc)) < 0.5;
+        bool isDoor = !palace && kind < 2.5 && !shop && fl < 0.5 && nc > 1.5 && abs(ci - floor(hash12(vec2(seed*3.7, L))*nc)) < 0.5;
         if (isDoor){ hw = 0.2; y0 = 0.0; y1 = 0.8; }
         float ok = step(fl, floors-0.5) * step(1.4, L) * step(0.3, h);
         float r1 = hash12(vec2(ci+seed*91.0, fl)), r2 = hash12(vec2(ci*1.7+seed*413.0, fl*3.1+seed*57.0)), r3 = hash12(vec2(fl*5.3+seed*17.0, ci*2.9+1.3));
@@ -415,12 +431,13 @@ const cityMat = new THREE.ShaderMaterial({
         else if (kind < 2.5) bars = 1.0 - smoothstep(0.0, 0.03/cs + wx, abs(wu - (r1 < 0.5 ? 0.5 : 0.33))*2.0*hw);
         else if (kind < 3.5) bars = 1.0 - smoothstep(0.0, 0.04/fh + wy, abs(fy - 0.5));
         float glassM = inP * inG;
-        frame = clamp(inG - inGi*(1.0 - bars), 0.0, 1.0) * inP * nearF * step(kind, 3.5);
+        frame = clamp(inG - inGi*(1.0 - bars), 0.0, 1.0) * inP * nearF * step(kind, 3.5) * (dark ? 0.0 : 1.0);
         fcol = kind < 1.5 ? vec3(0.78, 0.77, 0.74) : vec3(0.09, 0.09, 0.1);
         win = mix(glassM*(1.0 - frame), mix(box(fx, 0.5-hw, 0.5+hw, wx), 2.0*hw, fX) * mix(box(fy, y0, y1, wy), y1-y0, fY) * 0.85*ok, farAway);
         // the room behind: mostly dark, some lit; curtains and blinds in many
         lit = step(mix(0.9, 0.5, uNight), r2) * (1.0 - farAway*0.6);
         if (fl < 0.5) lit = max(lit, step(0.6, hash12(vec2(ci+seed*29.0, 7.0)))*(shop ? 0.9 : 0.6));
+        if (dark) lit = 0.0;
         vec3 warm = mix(vec3(1.0, 0.5, 0.2), vec3(1.0, 0.74, 0.46), r3);
         float cur = 0.0;
         if (kind < 1.5 && !shop){
@@ -440,6 +457,7 @@ const cityMat = new THREE.ShaderMaterial({
         inAlb = mix(inAlb, vec3(0.08, 0.075, 0.07), fX);
         inEm = mix(inEm, vec3(1.0, 0.6, 0.3)*(fl < 0.5 ? 0.3 : 0.06 + 0.3*uNight), fX);
         inEm *= 1.0 + uNight*0.6;
+        if (dark){ inEm = vec3(0.0); inAlb = vec3(0.02); }
         // doors: painted panels under a small fanlight
         if (isDoor){
           float door = glassM * step(wv, 0.8);
@@ -465,7 +483,7 @@ const cityMat = new THREE.ShaderMaterial({
           if (kind < 1.5){
             // classic facades: rendered window surrounds and stone sills, with a shadow under each sill
             float plain = shop || isDoor ? 0.0 : 1.0;
-            float sw = 0.14/cs, sv = 0.14/fh, has = step(0.35, fract(seed*0.731)) * plain;
+            float sw = 0.14/cs, sv = 0.14/fh, has = (palace ? 1.0 : step(0.35, fract(seed*0.731))) * plain;
             float sur = (box(fx, 0.5-hw-sw, 0.5+hw+sw, wx) * box(fy, y0-sv, y1+sv, wy)*ok - inP) * has;
             float sl = box(fx, 0.5-hw-0.07/cs, 0.5+hw+0.07/cs, wx) * box(fy, y0-0.09/fh, y0, wy) * ok * plain;
             float slSh = box(fx, 0.5-hw-0.05/cs, 0.5+hw+0.05/cs, wx) * box(fy, y0-0.19/fh, y0-0.09/fh, wy) * ok * plain;
@@ -473,13 +491,23 @@ const cityMat = new THREE.ShaderMaterial({
             alb = mix(alb, vec3(0.5, 0.48, 0.44), sl*nearF);
             alb *= 1.0 - 0.45*slSh*nearF;
             // rusticated ground floor
-            float rus = floors > 2.5 && h < fh - 0.4 ? 1.0 - smoothstep(0.0, 0.025 + fwH, abs(fract(h/0.45 + 0.5) - 0.5)*0.45) : 0.0;
+            float rus = floors > 2.5 && h < (palace ? 6.2*pS : fh - 0.4) ? 1.0 - smoothstep(0.0, 0.025 + fwH, abs(fract(h/0.45 + 0.5) - 0.5)*0.45) : 0.0;
             alb *= 1.0 - 0.3*rus*nearF*(1.0 - inP);
+            if (palace){
+              // the hood over each main-floor window, with its shadow on the wall below; string courses over the
+              // ground floor and under the second floor
+              float hc = box(fx, 0.5-hw-0.08, 0.5+hw+0.08, wx) * ok * step(1.5, fl) * step(fl, 2.5);
+              float hood = hc * box(h, 11.25*pS, 11.7*pS, fwH);
+              float hsh = hc * box(h, 11.0*pS, 11.25*pS, fwH) * (1.0 - inP);
+              float crs = box(h, 6.2*pS, 6.55*pS, fwH) + box(h, 12.2*pS, 12.4*pS, fwH);
+              alb *= 1.0 + (0.3*hood + 0.22*crs)*nearF;
+              alb *= 1.0 - 0.4*hsh*nearF;
+            }
           }
           // plinth of dark stone; on old facades a string course over the ground floor and a cornice under the eaves;
           // on modern blocks the slab edge at each floor
           float plinth = 1.0 - smoothstep(0.62, 0.62 + fwH*1.5, h);
-          float course = kind < 1.5 && floors > 2.5 ? (smoothstep(fh-0.32, fh-0.3, h) - smoothstep(fh-0.08, fh-0.06, h)) : 0.0;
+          float course = !palace && kind < 1.5 && floors > 2.5 ? (smoothstep(fh-0.32, fh-0.3, h) - smoothstep(fh-0.08, fh-0.06, h)) : 0.0;
           float eave = vInfo.w > 10.0 ? vInfo.w/10.0 : floors*fh;
           float cornice = kind < 1.5 && floors > 1.5 ? smoothstep(eave-0.75, eave-0.7, h) * (1.0 - smoothstep(eave-0.3, eave-0.25, h)) : 0.0;
           float under = kind < 1.5 && floors > 1.5 ? smoothstep(eave-0.95, eave-0.9, h) * (1.0 - smoothstep(eave-0.75, eave-0.7, h)) : 0.0;
@@ -1182,6 +1210,7 @@ async function generate(){
     let kind = 1, pal;
     if (wall===96){ nextRoof(RF); nextFacade(FD); continue; }  // under a hand-built landmark
     if (wall===97){ kind = 13; pal = [colW]; }                 // a landmark's plain stone body
+    else if (wall===95){ kind = 5; pal = [colW]; }             // Christiansborg's palace: its own rows of windows
     else if (wall===98){ kind = 2; pal = [0xcfc8b8,0xc6bfae]; } // the Opera: pale stone with bands of windows
     else if (boat){ kind = 4; pal = PAL.boat; }
     else if (wall===6){ kind = 3; pal = PAL.glass; }
@@ -1901,6 +1930,7 @@ function buildLandmarks(){
   if (H.holmens) buildHolmens(H.holmens);
   if (H.kgldome) buildTeaterDome(H.kgldome);
   if (H.natbank) buildNatbank(H.natbank);
+  if (H.diamant) buildDiamant(H.diamant);
   if (H.glass) for (const g of H.glass){ const r=new Float32Array(g), T=tileFor(...centroid(r)); walls(T, ringArea(r)<0 ? insetRing(r, 0.15) : insetRing(r, -0.15), GROUND, GROUND+4.4, [34,42,48], 3, 0.2, 4.4, 1); }
 }
 // Holmens Kirke's flèche over the crossing, fitted to the laser scan and the oblique photos: an octagonal copper base
@@ -1939,6 +1969,58 @@ function buildNatbank(N){
     cap(T, [courts[i]], y0, [150,150,150], 17, 0); });
   rasterFill([low], j=>{ const v=Math.round((G0+N.lowH)*10); if (v>H2[j]) H2[j]=v; });
   rasterFill([blk], j=>{ const v=Math.round(yt*10); if (v>H2[j]) H2[j]=v; });
+}
+// Den Sorte Diamant, measured from the laser scan and fitted to the oblique photos. In its own frame (u along
+// Christians Brygge, v out toward the harbour) the foot is 78 x 36 m and the roof at 23.4 m reaches 4 m further over the
+// quay and 3.6 m past the south-west end: black granite and glass, split by the glazed wedge of the atrium on the
+// harbour side, glass in the middle of the street side, with a low white wing at the north-east end and two bridges
+// across the street to the glazed 1968 wing.
+function buildDiamant([ox, oz, ux, uz]){
+  const G0=GROUND, vx=-uz, vz=ux, Y=G0+23.4, P=(u,v,y)=>[ox+ux*u+vx*v, y, oz+uz*u+vz*v], T=tileFor(...P(39,17,0).filter((_,i)=>i!==1));
+  const black=[24,24,27], cut=[78,88,92], white=[214,212,206];
+  // a flat face from its bottom edge a0-b0 to its top edge a1-b1 (u v pairs), with the facade shader's window grid
+  const face=(a0, b0, a1, b1, y0, y1, c, kind, fh, floors, seed)=>{
+    const A=P(a0[0],a0[1],y0), B=P(b0[0],b0[1],y0), C=P(b1[0],b1[1],y1), D=P(a1[0],a1[1],y1);
+    const n=faceN(A[0],A[1],A[2], B[0],B[1],B[2], C[0],C[1],C[2]), L=Math.hypot(B[0]-A[0], B[2]-A[2]), dx=(B[0]-A[0])/L, dz=(B[2]-A[2])/L;
+    const uu=q=>(q[0]-A[0])*dx+(q[2]-A[2])*dz;
+    const v=[A,B,C,D].map(q=>T.vert(q[0],q[1],q[2], -n.x,-n.y,-n.z, c, uu(q),q[1]-G0,fh,L, kind,seed,floors, y1-G0));
+    T.tri(v[0],v[2],v[1]); T.tri(v[0],v[3],v[2]); };   // wound like walls(): outward for an anticlockwise ring
+  // the corners: foot, then roof; faces run anticlockwise seen from above so their normals point out
+  const f0=[[0,-1],[78,-1],[78,35],[0,35]], f1=[[-3.6,-1],[75.5,-1],[75.5,39],[-3.6,39]];
+  const at=(e, t, top)=>{ const r=top ? f1 : f0, a=r[e], b=r[(e+1)%4]; return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t]; };
+  const part=(e, t0, t1, c, kind, s0, s1)=>face(at(e,t0,0), at(e,t1,0), at(e,s0??t0,1), at(e,s1??t1,1), G0, Y, c, kind, 3.34, 7, 0.37);
+  // the street side: black ends, glass between
+  part(0, 0, 0.15, black, 6); part(0, 0.15, 0.82, cut, 3); part(0, 0.82, 1, black, 6);
+  part(1, 0, 1, black, 6);
+  // the harbour side runs from u 78 back to u 0: black, the atrium's wedge of glass set 2.5 m back, black
+  const h0=(78-43)/78, h1=(78-31)/78, t0=(75.5-49)/79.1, t1=(75.5-26)/79.1;
+  part(2, 0, h0, black, 6, 0, t0); part(2, h1, 1, black, 6, t1, 1);
+  const inn=q=>[q[0], q[1]-2.5];
+  face(inn(at(2,h0,0)), inn(at(2,h1,0)), inn(at(2,t0,1)), inn(at(2,t1,1)), G0, Y, cut, 3, 3.34, 7, 0.61);
+  face(at(2,h0,0), inn(at(2,h0,0)), at(2,t0,1), inn(at(2,t0,1)), G0, Y, black, 19, 3, 0, 0);
+  face(inn(at(2,h1,0)), at(2,h1,0), inn(at(2,t1,1)), at(2,t1,1), G0, Y, black, 19, 3, 0, 0);
+  part(3, 0, 1, black, 6);
+  // the roof, draped with the photo (its two sunken terraces and the solar panels over the atrium), with the notch of
+  // the wedge, and the two plant rooms on the street side
+  const roof=[f1[0], f1[1], f1[2], at(2,t0,1), inn(at(2,t0,1)), inn(at(2,t1,1)), at(2,t1,1), f1[3]].map(([u,v])=>{ const q=P(u,v,0); return [q[0],q[2]]; });
+  const rr=new Float32Array(roof.flat());
+  cap(T, [ringArea(rr)>0 ? rr : new Float32Array(roof.slice().reverse().flat())], Y, [150,150,150], 17, 0);
+  for (const [u0,u1] of [[18.5,30],[47.5,57.5]]){
+    const r=[[u0,1],[u1,1],[u1,6.5],[u0,6.5]].map(([u,v])=>{ const q=P(u,v,0); return [q[0],q[2]]; }), fr=new Float32Array(r.flat()), ring=ringArea(fr)>0 ? fr : new Float32Array(r.slice().reverse().flat());
+    walls(T, ring, Y, Y+2.8, [44,44,46], 19, 0, 3, 0); cap(T, [ring], Y+2.8, [150,150,150], 17, 0); }
+  // the low white wing at the north-east end
+  const wing=[[78,-1],[88.6,0],[89.2,30.7],[78,31.7]].map(([u,v])=>{ const q=P(u,v,0); return [q[0],q[2]]; }), wf=new Float32Array(wing.flat()), wr=ringArea(wf)>0 ? wf : new Float32Array(wing.slice().reverse().flat());
+  walls(T, wr, G0, G0+6.2, white, 2, 0.83, 3.1, 2); cap(T, [wr], G0+6.2, [150,150,150], 17, 0);
+  // the bridges to the 1968 wing, and the glass roof between them over the street
+  for (const u0 of [11.5, 61.5]){
+    const r=[[u0,-19],[u0+3.5,-19],[u0+3.5,-1],[u0,-1]].map(([u,v])=>{ const q=P(u,v,0); return [q[0],q[2]]; }), fr=new Float32Array(r.flat()), ring=ringArea(fr)>0 ? fr : new Float32Array(r.slice().reverse().flat());
+    walls(T, ring, G0+16.6, G0+19.8, [118,126,130], 19, 0, 3, 0); cap(T, [ring], G0+19.8, [150,150,150], 17, 0); }
+  quad(T, [P(30,-18,G0+12), P(47,-18,G0+12), P(47,-1,G0+15), P(30,-1,G0+15)], [0,1,0], [126,138,144], 19, 0);
+  quad(T, [P(30,-18,G0+11.9), P(47,-18,G0+11.9), P(47,-1,G0+14.9), P(30,-1,G0+14.9)], [0,-1,0], [70,76,80], 19, 0);
+  // collision: the block to its roof outline, the wing
+  const top=new Float32Array(f1.flatMap(([u,v])=>{ const q=P(u,v,0); return [q[0],q[2]]; }));
+  rasterFill([top], j=>{ const v=Math.round(Y*10); if (v>H2[j]) H2[j]=v; });
+  rasterFill([wr], j=>{ const v=Math.round((G0+6.2)*10); if (v>H2[j]) H2[j]=v; });
 }
 // Det Kongelige Teater's dome over the auditorium, measured from the laser scan: a horseshoe 31 m across, rounded
 // toward Kongens Nytorv, on a pale drum with round windows; ribbed grey metal rising from 22 m to a flat crown at 34.4 m

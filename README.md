@@ -52,12 +52,13 @@ Roofs carry about 17,000 chimneys, found where the raw laser scan stands well ab
 - **The Opera:** its roof slab runs out over an open plaza, above the curved glass front of the foyer.
 - **Knippelsbro:** its two control towers.
 - **Amalienborg:** Frederik V on horseback.
-- **Christiansborg:** the palace in dark granite under its steep roofs from the laser scan, the tower's granite shaft with its column of windows, Slotskirken's drum and low dome and its portico of four columns, and on Christiansborg Slotsplads the arc of granite bollards and Frederik VII on horseback.
+- **Christiansborg:** the palace in grey granite under its steep roofs from the laser scan, with its own rows of windows (the rusticated ground floor and its small mezzanine windows, the tall windows of the main floor under their hoods, the second floor and the attic), the tower's granite shaft with its column of windows, Slotskirken's drum and low dome and its portico of four columns, and on Christiansborg Slotsplads the arc of granite bollards and Frederik VII on horseback.
 - **Det Kongelige Teater:** the sandstone front on Kongens Nytorv with five arched doors, the loggia of three arches between paired columns, and Holberg and Oehlenschläger by the steps; behind it the ribbed grey dome over the auditorium, a horseshoe 31 m across with its flat crown at 34 m, measured from the laser scan.
 - **Skuespilhuset:** near-black brick over a glazed ground floor, with its stage tower in the same brick.
 - **Holmens Kirke:** red brick under slate, with its copper flèche on the crossing fitted to the laser scan.
 - **Amalienborg:** the four palaces in pale stone; OpenStreetMap's untagged parts no longer get random colours.
 - **Rosenborg:** red brick under green copper roofs and spires.
+- **Den Sorte Diamant:** the black block leaning 4 m out over the quay, in bands of black stone and dark glass, split by the glazed wedge of the atrium, with the bridges across Christians Brygge to the glazed 1968 wing, fitted to the laser scan and the oblique photos.
 - **Nationalbanken:** the 20 m block of dark glass between marble ends, its two courtyards and the walled garden, measured from the laser scan.
 - **Børsen:** shown as it stood before the fire of April 2024, since the 2025 laser scan and photos show only its restoration tent. It is fitted to the 2019 oblique photos instead: eight steep copper wings across the roof on each side, each fronted by an ornamented brick gable, a larger gable in the middle of each side, small dormers between, tiered end gables, and the dragon spire over its open lantern.
 

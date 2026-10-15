@@ -253,7 +253,7 @@ for (const h of HAND){
 {
   const p=blds.find(b=>Math.hypot(b.cx+210.6, b.cz-459.1)<30 && Math.abs(b.A)>8000);
   if (p){
-    p.colW=0x403c39; p.noFacade=true; p.floors=5;
+    p.colW=0x5e5852; p.noFacade=true; p.floors=5; p.wall=95;
     // OSM's parts over the palace are flat blocks up to 39 m standing over the roof: they go, so the laser scan gives
     // the roofs. The window rows keep the gutter height from kbhkort.
     const r=p.rings[0], pip=(x,z)=>{ let c=false; for (let i=0,j=r.length-1;i<r.length;j=i++){ const a=r[i], b=r[j]; if ((a[1]>z)!==(b[1]>z) && x<(b[0]-a[0])*(z-a[1])/(b[1]-a[1])+a[0]) c=!c; } return c; };
@@ -289,6 +289,18 @@ for (const h of HAND){
   for (const b of blds) if (b.year>=1750 && b.year<=1760 && b.colW===0xdecbb7 && Math.hypot(b.cx-566, b.cz+467)<125){ b.colW=0xd6cdbd; b.noFacade=true; }
   const hol=blds.find(b=>Math.hypot(b.cx-11.6, b.cz-388.4)<6 && b.year===1619);
   if (hol){ hol.colW=0x985440; hol.noFacade=true; }
+}
+// Den Sorte Diamant (1999): the black granite block leans out over the quay, so its record's vertical walls and the
+// laser roof draped down them read as a striped box. It is built by hand from the laser scan and the oblique photos;
+// the record and a thin OSM ring round its foot go. The glazed 1968 wing across Christians Brygge stands 19.5 m tall
+// (its record keeps only the 2 m the laser finds at its foot); its roof truss is flattened into the roof and isn't a row
+// of chimneys.
+{
+  const di=blds.find(b=>b.year===1999 && Math.abs(Math.abs(b.A)-3169)<200 && Math.hypot(b.cx+29.4, b.cz-743.5)<15);
+  if (di){ di.wall=96; di.noFacade=true; hand.diamant=[-74.7, 755.0, 0.81987, -0.57255]; }
+  for (const b of blds) if (!b.year && Math.abs(Math.abs(b.A)-632)<30 && Math.hypot(b.cx+45.5, b.cz-740.9)<25){ b.wall=96; b.noFacade=true; }
+  const gw=blds.find(b=>b.year===1969 && Math.abs(Math.abs(b.A)-880)<60 && Math.hypot(b.cx+57.0, b.cz-713.8)<8);
+  if (gw){ gw.wall=6; gw.h=19.5; gw.keepH=true; gw.colW=0x7d878b; gw.noFacade=true; gw.floors=5; gw.noChim=true; gw.flatTop=20.3; }
 }
 // Nationalbanken (Arne Jacobsen, 1971): one record covers both the 20 m block and the low walled garden beside it, so
 // its walls stopped at the garden wall and the photo was smeared down the glass. It is built by hand from the laser
@@ -387,6 +399,7 @@ if (fs.existsSync(path.join(DK, 'ndsm.json'))){
     if (b.boat) return null;
     const r = roofFor(G, b.rings, skip); if (!r) return null;
     if (b.keepH) for (const q of r.pts) q[2]=Math.max(q[2], b.h);   // nothing on the palace sits below its gutters
+    if (b.flatTop) for (const q of r.pts) q[2]=Math.min(q[2], b.flatTop);   // the 1968 wing's roof truss: the photo shows it
     // the collision/course raster follows the real roof surface
     let lo=Infinity; for (const [s,e] of r.rings) for (let k=s;k<e;k++) lo=Math.min(lo, r.pts[k][2]);
     fillPoly(b.rings, i=>{ HR[i]=lo; });
@@ -692,7 +705,7 @@ const SP=[spans.length]; for (const b of spans){ SP.push(dm(b.c[0]), dm(b.c[1]),
 const LP=[lamps.length]; for (const l of lamps) LP.push(...l.map(dm));
 const TR=[]; for (const t of trees) TR.push(dm(t[0]), dm(t[1]), dm(t[2]), dm(t[3]));
 // chimneys found in the laser scan (tools/roofs.mjs): x, z, base, top, width, depth in decimetres, angle in milliradians
-const CH=[]; if (roofs) roofs.forEach((r,i) => { if (r && blds[i].wall!==96) for (const c of r.chims) if (!HAND.some(h=>Math.hypot(c[0]-h.x, c[1]-h.z)<h.skip)) CH.push(dm(c[0]), dm(c[1]), dm(c[2]), dm(c[3]), dm(c[4]), dm(c[5]), Math.round(c[6]*1000)); });
+const CH=[]; if (roofs) roofs.forEach((r,i) => { if (r && blds[i].wall!==96 && !blds[i].noChim) for (const c of r.chims) if (!HAND.some(h=>Math.hypot(c[0]-h.x, c[1]-h.z)<h.skip)) CH.push(dm(c[0]), dm(c[1]), dm(c[2]), dm(c[3]), dm(c[4]), dm(c[5]), Math.round(c[6]*1000)); });
 console.log('chimneys', CH.length/7);
 const city = { v:1, origin:ORIGIN, bounds:BOUNDS, B, L, water:encList(water), spans:SP, lamps:LP, trees:TR, chim:CH, hand,
   kerb:encList(kerbs.map(l=>[l])), mast:masts.flat().map(dm), paved:encList(paved),
