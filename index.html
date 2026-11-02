@@ -46,6 +46,12 @@ button:focus-visible{outline:2px solid var(--ember);outline-offset:3px}
 #caption .line{font-size:15px;line-height:1.35;color:var(--ink)}
 #caption.swap{opacity:0;transition:opacity .25s}
 #cta{right:max(16px,3vw);bottom:calc(var(--bar)/2);transform:translateY(50%);display:flex;align-items:center;gap:12px}
+#diff{display:flex;gap:0;margin-right:6px}
+#diff button{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;background:rgba(8,10,16,.35);border:1px solid var(--hair);padding:7px 10px;color:var(--ink-dim);margin-left:-1px}
+#diff button:first-child{border-radius:2px 0 0 2px;margin-left:0}
+#diff button:last-child{border-radius:0 2px 2px 0}
+#diff button:hover{color:var(--ink)}
+#diff button[aria-checked="true"]{color:var(--ember);border-color:var(--ember);position:relative;z-index:1}
 #cta .key{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--ink-dim);text-transform:uppercase}
 #credits{left:50%;bottom:6px;transform:translateX(-50%);font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:rgba(244,237,226,.42);white-space:nowrap}
 .fly{font-family:var(--display);font-weight:700;font-size:20px;letter-spacing:.14em;text-transform:uppercase;background:var(--ember);color:var(--night);border:0;padding:10px 20px 11px;border-radius:2px;transition:background .2s,transform .2s}
@@ -56,6 +62,8 @@ button:focus-visible{outline:2px solid var(--ember);outline-offset:3px}
 @media (max-width:640px){
   #caption .line{display:none}
   #cta .key{display:none}
+  #cta{flex-direction:column;align-items:flex-end;gap:8px}
+  #diff{margin-right:0}
   #brand p{display:none}
   .fly{font-size:17px;padding:9px 14px}
 }
@@ -66,10 +74,22 @@ button:focus-visible{outline:2px solid var(--ember);outline-offset:3px}
 .lab{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-dim)}
 .val{font-family:var(--display);font-weight:700;font-size:34px;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:.02em;text-shadow:0 1px 12px rgba(0,0,0,.45)}
 .val small{font-size:.5em;color:var(--ink-dim);margin-left:4px;letter-spacing:.08em}
-#i-gate{left:max(16px,3vw);top:calc(env(safe-area-inset-top,0px) + 18px)}
+#i-gate{left:max(16px,3vw);top:calc(env(safe-area-inset-top,0px) + 18px);max-width:calc(50vw - min(140px,23vw) - max(16px,3vw) - 12px)}
+#i-gate .val{font-size:clamp(20px,2.6vw,30px);line-height:1.05;text-wrap:balance}
 #i-gate .where{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--ember);min-height:1em}
+#i-dist{left:50%;top:calc(env(safe-area-inset-top,0px) + 66px);transform:translateX(-50%);text-align:center;justify-items:center}
+#i-dist .val{transition:color .4s}
+#i-dist .val i{font-style:normal;font-size:.5em;margin-left:6px;vertical-align:.25em}
+#i-dist.closing .val{color:var(--ember)}
+#i-dist.opening .val{color:#9fb6d8}
 #i-time{right:max(16px,3vw);top:calc(env(safe-area-inset-top,0px) + 18px);text-align:right}
 #i-pen{font-family:var(--mono);font-size:12px;color:var(--ember);min-height:1em}
+#reveal{justify-self:end;margin-top:8px;font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;background:rgba(8,10,16,.35);border:1px solid var(--hair);padding:6px 9px;border-radius:2px;color:var(--ink-dim)}
+#reveal:hover{color:var(--ink);border-color:var(--ink-dim)}
+#reveal kbd{font:inherit;color:var(--ink);margin-right:6px}
+#reveal small{color:var(--ember);font-size:inherit;margin-left:6px}
+#reveal[hidden]{display:none}
+#edge{position:absolute;left:50%;top:38%;transform:translateX(-50%);font-family:var(--mono);font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--ember);text-align:center;text-shadow:0 1px 3px rgba(0,0,0,.8),0 0 14px rgba(0,0,0,.5);transition:opacity .3s;white-space:nowrap}
 #i-air{left:max(16px,3vw);bottom:calc(env(safe-area-inset-bottom,0px) + 18px);display:flex;gap:26px}
 #i-air .inst{position:static}
 #i-air .val{font-size:26px}
@@ -81,21 +101,22 @@ button:focus-visible{outline:2px solid var(--ember);outline-offset:3px}
 #hdg{position:absolute;left:50%;top:24px;transform:translateX(-50%);font-family:var(--mono);font-size:12px;color:var(--ember);font-variant-numeric:tabular-nums}
 #hdg::before{content:"";position:absolute;left:50%;top:-4px;width:1px;height:4px;background:var(--ember)}
 #marker{position:absolute;left:0;top:0;width:0;height:0}
-#marker .ring{position:absolute;left:-15px;top:-15px;width:30px;height:30px;border:1.5px solid var(--ember);border-radius:50%;box-shadow:0 0 12px rgba(255,150,80,.4)}
 #marker .arrow{position:absolute;left:-9px;top:-9px;width:18px;height:18px;display:none}
 #marker .arrow::before{content:"";position:absolute;left:3px;top:3px;width:10px;height:10px;border-top:2px solid var(--ember);border-right:2px solid var(--ember);transform:rotate(45deg)}
-#marker.edge .ring{display:none}
 #marker.edge .arrow{display:block}
 #marker .dist{position:absolute;left:20px;top:-7px;font-family:var(--mono);font-size:11px;color:var(--ember);white-space:nowrap;font-variant-numeric:tabular-nums}
 #aim{position:absolute;left:0;top:0;width:18px;height:18px;margin:-9px 0 0 -9px;border:1px solid rgba(244,237,226,.5);border-radius:50%}
 #aim::after{content:"";position:absolute;left:7px;top:7px;width:2px;height:2px;background:var(--ink);border-radius:50%}
 #hint{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);transform:translateX(-50%);font-size:14px;color:var(--ink-dim);text-align:center;width:min(560px,calc(100vw - 32px));line-height:1.4}
 #hint b{color:var(--ink);font-weight:600}
-@media (max-width:640px){ #i-air{display:none} #hint{bottom:calc(env(safe-area-inset-bottom,0px) + 16px)} }
+@media (max-width:640px){ #i-air{display:none} #hint{bottom:calc(env(safe-area-inset-bottom,0px) + 16px)}
+  #i-gate{top:calc(env(safe-area-inset-top,0px) + 128px);left:16px;right:16px;max-width:none;text-align:center;justify-items:center} }
 
 #toast{left:50%;top:28%;transform:translateX(-50%);text-align:center;transition:opacity .3s}
 #toast .t{font-family:var(--display);font-weight:800;font-size:clamp(30px,5vw,56px);letter-spacing:.08em;text-transform:uppercase;line-height:1;text-shadow:0 2px 24px rgba(0,0,0,.5)}
-#toast .s{font-family:var(--mono);font-size:14px;color:var(--ember);margin-top:8px;letter-spacing:.08em}
+#toast .s{font-family:var(--mono);font-size:14px;color:var(--ember);margin-top:8px;letter-spacing:.08em;text-shadow:0 1px 3px rgba(0,0,0,.8),0 0 14px rgba(0,0,0,.5)}
+#toast .f{font-size:16px;line-height:1.4;margin:10px auto 0;max-width:min(46ch,calc(100vw - 32px));text-shadow:0 1px 3px rgba(0,0,0,.8),0 0 16px rgba(0,0,0,.6)}
+#toast .f:empty{display:none}
 #toast.small .t{font-size:clamp(18px,2.4vw,24px);letter-spacing:.2em}
 #toast.big .t{font-size:clamp(64px,12vw,140px)}
 
@@ -124,32 +145,36 @@ button:focus-visible{outline:2px solid var(--ember);outline-offset:3px}
 <div id="brand" class="ui fadeable"><h1>COPENAERIE</h1><p>A glider run through København</p></div>
 <div id="sound" class="ui fadeable"><button id="tilt" type="button" aria-pressed="false" hidden>Tilt off</button> <button id="nite" type="button" aria-pressed="false">Dusk</button> <button id="snd" type="button" aria-pressed="true">Sound on</button></div>
 <div id="caption" class="ui"><span class="kicker" id="cap-k">København</span><span class="line" id="cap-l"></span></div>
-<div id="cta" class="ui fadeable"><span class="key">Enter</span><button class="fly" id="fly" type="button">Fly the city</button></div>
+<div id="cta" class="ui fadeable"><div id="diff" role="radiogroup" aria-label="Difficulty"><button type="button" role="radio" data-d="easy" aria-checked="false">Easy</button><button type="button" role="radio" data-d="normal" aria-checked="true">Normal</button><button type="button" role="radio" data-d="hard" aria-checked="false">Hard</button></div><span class="key">Enter</span><button class="fly" id="fly" type="button">Fly the city</button></div>
 <div id="credits" class="ui fadeable">Aerial photo 2025, height model, kerbs and masts: Klimadatastyrelsen · Buildings, BBR and trees: Københavns Kommune, GeoDanmark · Landmarks, bridges, squares and parking © OpenStreetMap contributors</div>
 
 <div id="hud" class="ui fadeable off" aria-live="off">
-  <div class="inst" id="i-gate"><span class="lab">Next gate</span><span class="val" id="v-gate">01<small>/21</small></span><span class="where" id="v-where"></span></div>
-  <div class="inst" id="i-time"><span class="lab">Lap</span><span class="val" id="v-time">0:00.0</span><span id="i-pen"></span></div>
+  <div class="inst" id="i-gate"><span class="lab" id="v-k">Fly to · 1 of 6</span><span class="val" id="v-target"></span><span class="where" id="v-where"></span></div>
+  <div class="inst" id="i-time"><span class="lab">Time</span><span class="val" id="v-time">0:00.0</span><span id="i-pen"></span><button id="reveal" type="button" hidden><kbd>R</kbd>Reveal<small>+30 s</small></button></div>
   <div id="compass"><div id="tape"></div><div id="hdg">000°</div></div>
+  <div class="inst" id="i-dist"><span class="lab">Distance</span><span class="val" id="v-range">0<small>m</small></span></div>
   <div class="inst" id="i-air">
     <div class="inst"><span class="lab">Airspeed</span><span class="val" id="v-spd">120<small>km/h</small></span></div>
     <div class="inst"><span class="lab">Altitude</span><span class="val" id="v-alt">10<small>m</small></span></div>
   </div>
-  <div id="marker"><div class="ring"></div><div class="arrow"></div><span class="dist" id="v-dist"></span></div>
+  <div id="marker"><div class="arrow"></div><span class="dist" id="v-dist"></span></div>
   <div id="aim" hidden></div>
+  <div id="edge" class="off">Edge of the map · turning back</div>
   <div id="hint" class="fadeable">Steer with the <b>mouse</b>, <b>arrow keys</b> or <b>WASD</b>. Drag on a touch screen. <b>Esc</b> returns to the flyby.</div>
 </div>
 
-<div id="toast" class="ui off"><div class="t" id="toast-t"></div><div class="s" id="toast-s"></div></div>
+<div id="toast" class="ui off"><div class="t" id="toast-t"></div><div class="s" id="toast-s"></div><div class="f" id="toast-f"></div></div>
 
 <div id="result" class="ui fadeable off" role="dialog" aria-labelledby="r-k">
-  <span class="lab" id="r-k">Lap complete</span>
+  <span class="lab" id="r-k">Hunt complete</span>
   <div id="r-time">0:00.0</div>
   <span id="r-new" hidden>New best</span>
   <dl id="r-rows">
-    <dt>Gates threaded</dt><dd id="r-gates">0 / 0</dd>
+    <dt>Landmarks found</dt><dd id="r-found">0 / 0</dd>
+    <dt>Directness</dt><dd id="r-direct">0 %</dd>
+    <dt>Revealed</dt><dd id="r-rev">0</dd>
     <dt>Penalties</dt><dd id="r-pen">+0.0 s</dd>
-    <dt>Best lap</dt><dd id="r-best">0:00.0</dd>
+    <dt>Best hunt</dt><dd id="r-best">0:00.0</dd>
   </dl>
   <div id="r-btns"><button class="fly" id="again" type="button">Fly again</button><button class="ghost" id="watch" type="button">Keep watching</button></div>
 </div>
@@ -170,7 +195,7 @@ const damp = (k,dt) => 1-Math.exp(-k*dt);
 const fmt = s => { s = Math.max(0, Math.floor(s*10)/10); const m = Math.floor(s/60); const r = s-m*60; return m+':'+(r<10?'0':'')+r.toFixed(1); };
 const store = { get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch(e){} } };
 const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-let best = parseFloat(store.get('copenaerie-best')) || 0;
+let best = 0;   // the best time at the chosen difficulty, set with it below
 let soundOn = store.get('copenaerie-sound') !== 'off';
 function hash(n){ n = Math.sin(n*127.1+311.7)*43758.5453; return n-Math.floor(n); }
 
@@ -201,6 +226,50 @@ const PLACES = {
   'Christiansborg': 'Parliament, the Supreme Court and the Prime Minister’s office share one island. Its tower is the city’s tallest.',
   'Slotsholmen': 'The castle island, where Bishop Absalon built a fortress in 1167.',
 };
+// The landmark hunt: [x, z, radius of the miniature's cutout, name, Danish name ('' if the same), what you see when
+// you get there, target height if a spire would poke into the miniature or a taller neighbour would hide it].
+// Placed on the 2025 aerial photo (hand-modelled landmarks at their modelled centres); the target floats over the
+// highest point within 25 m.
+const LANDMARKS = [
+  [-507.7,-114, 32, 'The Round Tower', 'Rundetårn', 'Christian IV’s observatory of 1642. A spiral ramp winds up inside instead of stairs.'],
+  [336.1,-560.6, 42, 'The Marble Church', 'Frederiks Kirke', 'Its copper dome spans 31 metres, one of the widest in Scandinavia.', 92],
+  [-189,442.8, 75, 'Christiansborg', 'Christiansborg Slot', 'Parliament, the Supreme Court and the Prime Minister’s office. The tower is the city’s tallest at 106 m.', 121],
+  [-810.6,547.5, 55, 'City Hall', 'Københavns Rådhus', 'Finished in 1905. Its tower reaches 105.6 m.', 120],
+  [688.8,781.4, 36, 'Church of Our Saviour', 'Vor Frelsers Kirke', 'The last 150 steps to the gilded globe wind round the outside of the spire.'],
+  [1054.8,-266.1, 78, 'The Opera', 'Operaen', 'Opened in 2005 on Holmen, on the same axis as Amalienborg and the Marble Church.'],
+  [571,-459.5, 95, 'Amalienborg', '', 'Four identical rococo palaces around an octagonal square. Home of the royal family.'],
+  [-429,-600, 42, 'Rosenborg Castle', 'Rosenborg Slot', 'Christian IV’s summer house of 1606. The crown jewels are kept in its cellar.'],
+  [-74.7,755, 58, 'The Black Diamond', 'Den Sorte Diamant', 'The Royal Library’s 1999 extension, in black granite and glass, leaning out over the quay.'],
+  [43.4,510.1, 72, 'The Old Stock Exchange', 'Børsen', 'Built for Christian IV in the 1620s. Its dragon-tail spire burned in April 2024.'],
+  [11.6,387.3, 42, 'Holmen’s Church', 'Holmens Kirke', 'The navy’s church, converted from an anchor forge in 1619.'],
+  [147.4,40.9, 55, 'The Royal Danish Theatre', 'Det Kongelige Teater', 'The Old Stage on Kongens Nytorv, 1874.'],
+  [680.7,-25.9, 58, 'The Royal Playhouse', 'Skuespilhuset', 'The drama stage of 2008, with a boardwalk out over the harbour.'],
+  [463.4,10.5, 75, 'Nyhavn', '', 'The 1670s canal of painted townhouses. Hans Christian Andersen lived at number 20.'],
+  [-930.9,829.6, 110, 'Tivoli Gardens', 'Tivoli', 'Opened in 1843, one of the oldest amusement parks in the world.'],
+  [-1141,865, 80, 'Central Station', 'Københavns Hovedbanegård', 'Opened in 1911, its hall roofed with timber arches.'],
+  [-392,-942, 65, 'The National Gallery', 'Statens Museum for Kunst', 'Denmark’s national gallery, opened in 1896 on the old ramparts.'],
+  [610.7,-1279.5, 235, 'Kastellet', '', 'A star-shaped fortress of 1626, still used by the army.'],
+  [903,-1473.1, 60, 'The Little Mermaid', 'Den Lille Havfrue', 'Edvard Eriksen’s statue of 1913, just 1.25 m tall, on a rock off Langelinie.'],
+  [835,-898, 55, 'The Gefion Fountain', 'Gefionspringvandet', 'The goddess Gefion ploughs Zealand out of Sweden with her four sons turned into oxen.', 40],
+  [-1595,703, 42, 'The Planetarium', 'Tycho Brahe Planetarium', 'A slanted brick cylinder on the edge of Sankt Jørgens Sø, 1989.'],
+  [993.4,629.7, 90, 'Christiania', 'Fristaden Christiania', 'A freetown in old army barracks since 1971.'],
+  [262,580, 70, 'Knippelsbro', '', 'The 1937 bascule bridge between Slotsholmen and Christianshavn.'],
+  [790,142, 85, 'The Inner Harbour Bridge', 'Inderhavnsbroen', 'A cycle and footbridge from 2016. Copenhageners call it the kissing bridge.'],
+  [168,361, 85, 'The National Bank', 'Nationalbanken', 'Arne Jacobsen’s central bank, finished in 1978.'],
+  [-685,865, 60, 'Ny Carlsberg Glyptotek', '', 'The brewer Carl Jacobsen’s sculpture museum, with a palm garden under a glass dome.'],
+  [-512.7,629.6, 58, 'The National Museum', 'Nationalmuseet', 'Denmark’s history from the Stone Age on, in the Prince’s Mansion of the 1740s.'],
+  [-672.2,102.6, 48, 'Copenhagen Cathedral', 'Vor Frue Kirke', 'Thorvaldsen’s Christ and the twelve apostles stand inside.'],
+  [-923,-370, 55, 'Torvehallerne', '', 'Two glass market halls on Israels Plads, opened in 2011.'],
+  [-1335,-685, 75, 'Queen Louise’s Bridge', 'Dronning Louises Bro', 'The 1887 bridge between the lakes, Nørrebro’s front door.'],
+  [-729,-793, 45, 'The Palm House', 'Palmehuset', 'The Botanical Garden’s glasshouse of 1874.'],
+];
+const HUNT_N = 6, ORB_R = 9, MINI_R = 8.5, REVEAL_PEN = 30;
+// Easy shows the target from further off; Hard names it only in Danish and shows it only close up.
+const DIFFS = { easy:{ label:'Easy', reveal:150 }, normal:{ label:'Normal', reveal:75 }, hard:{ label:'Hard', reveal:40, danish:true } };
+let diff = DIFFS[store.get('copenaerie-diff')] ? store.get('copenaerie-diff') : 'normal';
+best = parseFloat(store.get('copenaerie-hunt-best-'+diff)) || 0;
+// what the HUD calls a landmark: on Hard only its Danish name
+const callIt = t => DIFFS[diff].danish ? (t.dk || t.name) : t.name;
 
 // let the loading bar repaint between stages; a hidden tab throttles timers to 1 s, so it skips the pause there
 const tick = () => new Promise(r => document.hidden ? r() : setTimeout(r, 20));
@@ -900,7 +969,7 @@ let city, bounds, tiles = new Map(), TILE = 400;
 let H2, HW, HH, OWN, curB=0; const HCELL = 2; // collision raster: tops in decimetres on a 2 m grid
 let DB, DT; // bridge decks over water on the same grid: underside and top (with parapet) in decimetres, 0 where there is no deck
 let water, sky, clouds, dust, glider, groundMesh;
-const gates = [];
+const targets = []; let beam;
 // Aerial photo tiles (tools/ortho_dk.py), one per 400 m city tile, streamed in by distance from the camera.
 // Each tile's ground and city meshes share its uniforms, so swapping a texture in or out touches nothing else.
 const PT = new Map();
@@ -1368,6 +1437,7 @@ async function generate(){
     if (!T.n) continue;
     const g=T.mesh();
     const [tx,tz]=k.split(',').map(Number);
+    cutFrom(T, tx, tz);
     const m=new THREE.Mesh(g, cityMatFor(tx,tz)); scene.add(m);
     shadowScene.add(new THREE.Mesh(g, cityDepth));
     // once on the GPU the vertex data isn't needed in JavaScript (bounds are already computed)
@@ -1400,14 +1470,9 @@ async function generate(){
   setLoad('Gathering cloud', 0.88); await tick();
   buildSky();
 
-  setLoad('Rigging the gates', 0.94); await tick();
+  setLoad('Placing the landmarks', 0.94); await tick();
   buildPath();
-  const torus = new THREE.TorusGeometry(4.2, 0.17, 10, 56);
-  for (const g of PATH.gates){
-    const mat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true });
-    const mesh = new THREE.Mesh(torus, mat); mesh.position.copy(g.c); mesh.lookAt(g.c.clone().add(g.n));
-    scene.add(mesh); g.mesh=mesh; g.mat=mat; g.anim=9; g.missed=false; gates.push(g);
-  }
+  buildTargets();
   glider = buildGlider(); scene.add(glider);
   const sunL = new THREE.DirectionalLight(new THREE.Color(1.0,0.78,0.55), 2.6); sunL.position.copy(SUN); scene.add(sunL);
   scene.add(new THREE.HemisphereLight(new THREE.Color(0.35,0.45,0.7), new THREE.Color(0.25,0.18,0.12), 0.9));
@@ -2518,6 +2583,115 @@ const _pa=new V3(), _pb=new V3();
 function pathTangent(s, out, full){ pathPoint(s-1.5,_pa); pathPoint(s+1.5,_pb); out.subVectors(_pb,_pa); if (!full) out.setY(0); return out.normalize(); }
 function nextGateIndex(s){ for (let k=0;k<PATH.gates.length;k++) if (PATH.gates[k].s>=s) return k; return 0; }
 
+/* ---------------------------------------------------------------- landmark hunt */
+// The target is a grey miniature of the landmark itself: every city triangle within the landmark's cutout radius is
+// copied out of the map tiles before they go to the GPU (cutFrom), shrunk to MINI_R across and set on a round plinth
+// that shows land and water. It stays hidden until the glider comes within the difficulty's reveal distance, then
+// grows in over the landmark, turning slowly, with a beam of light down to the roof. Fly through it to find it.
+const CUT = LANDMARKS.map(()=>({ p:[], n:[], c:[] })), CUT_SEG = 48;
+// the plinth's outline is a CUT_SEG-gon; triangles that cross it are clipped to it, edge by edge
+const CUT_PL = Array.from({length:CUT_SEG}, (_,j)=>{ const a=(j+0.5)/CUT_SEG*Math.PI*2; return [Math.cos(a), Math.sin(a)]; });
+function cutFrom(T, tx, tz){
+  const x0=bounds[0]+tx*TILE, z0=bounds[1]+tz*TILE, near=[];
+  LANDMARKS.forEach((L,i)=>{ const [x,z,r]=L; if (x+r>x0 && x-r<x0+TILE && z+r>z0 && z-r<z0+TILE) near.push(i); });
+  if (!near.length) return;
+  const P=T.pos.a, N=T.nor.a, C=T.col.a, I=T.idx.a;
+  const V = v => [P[v],P[v+1],P[v+2], N[v],N[v+1],N[v+2], C[v],C[v+1],C[v+2]];
+  for (let k=0;k<T.idx.len;k+=3){
+    const a=I[k]*3, b=I[k+1]*3, c=I[k+2]*3;
+    const minx=Math.min(P[a],P[b],P[c]), maxx=Math.max(P[a],P[b],P[c]), minz=Math.min(P[a+2],P[b+2],P[c+2]), maxz=Math.max(P[a+2],P[b+2],P[c+2]);
+    for (const i of near){
+      const [x,z,r]=LANDMARKS[i];
+      if (maxx<x-r || minx>x+r || maxz<z-r || minz>z+r) continue;
+      const h=r*Math.cos(Math.PI/CUT_SEG), h2=h*h;
+      let poly=[V(a),V(b),V(c)];
+      if (!poly.every(q=>(q[0]-x)**2+(q[2]-z)**2<=h2)){
+        for (const [nx,nz] of CUT_PL){
+          const out=[], d=q=>nx*(q[0]-x)+nz*(q[2]-z)-h;
+          for (let j=0;j<poly.length;j++){
+            const A=poly[j], B=poly[(j+1)%poly.length], da=d(A), db=d(B);
+            if (da<=0) out.push(A);
+            if ((da<=0)!==(db<=0)){ const t=da/(da-db); out.push(A.map((v,m)=>m<6 ? v+(B[m]-v)*t : v)); }
+          }
+          poly=out; if (poly.length<3) break;
+        }
+        if (poly.length<3) continue;
+      }
+      const o=CUT[i];
+      for (let j=1;j+1<poly.length;j++) for (const q of [poly[0],poly[j],poly[j+1]]){ o.p.push(q[0],q[1],q[2]); o.n.push(q[3],q[4],q[5]); o.c.push(q[6],q[7],q[8]); }
+    }
+  }
+}
+const miniMat = new THREE.ShaderMaterial({
+  uniforms:{ uSun:{value:SUN}, uNight:{value:0} }, side:THREE.DoubleSide,
+  vertexShader:`attribute vec3 aCol; varying vec3 vN, vW; varying float vL;
+    void main(){ vec4 wp=modelMatrix*vec4(position,1.0); vW=wp.xyz; vN=normalize(mat3(modelMatrix)*normal);
+      vL=dot(aCol, vec3(0.3,0.59,0.11)); gl_Position=projectionMatrix*viewMatrix*wp; }`,
+  fragmentShader:`uniform vec3 uSun; uniform float uNight; varying vec3 vN, vW; varying float vL;
+    void main(){ vec3 n=normalize(vN); if (!gl_FrontFacing) n=-n; vec3 v=normalize(cameraPosition-vW);
+      float alb=mix(0.06, 0.62, pow(vL, 0.85));
+      float sun=max(dot(n,uSun),0.0)*(1.0-0.7*uNight), sky=0.5+0.5*n.y;
+      vec3 col=alb*(vec3(1.0,0.9,0.8)*sun*0.95 + vec3(0.62,0.64,0.7)*(0.18+0.42*sky)*(1.0-0.4*uNight) + 0.1*uNight);
+      col+=vec3(1.0,0.72,0.45)*pow(1.0-abs(dot(n,v)),3.0)*0.18;
+      gl_FragColor=vec4(col,1.0); }`
+});
+function buildMini(i, t){
+  const [x,z,r]=LANDMARKS[i], o=CUT[i], s=MINI_R/r;
+  // the plinth: a disc, light over land and dark over water, with a dark rim
+  const RINGS=10, SEG=CUT_SEG, dp=[], dn=[], dc=[], th=Math.max(r*0.04, 1.2);
+  const tone = (px,pz) => { const w=surfaceAt(px,pz)<0.5; return w ? [18,20,26] : [200,198,192]; };
+  const pt = (k,j) => { const rr=r*k/RINGS, a=j/SEG*Math.PI*2; return [x+Math.cos(a)*rr, z+Math.sin(a)*rr]; };
+  const push = (q,y,nrm,col) => { dp.push(q[0],y,q[1]); dn.push(...nrm); dc.push(...col); };
+  for (let k=0;k<RINGS;k++) for (let j=0;j<SEG;j++){
+    const A=pt(k,j), B=pt(k+1,j), C2=pt(k+1,j+1), D=pt(k,j+1), m=pt(k+0.5,j+0.5), col=tone(m[0],m[1]), up=[0,127,0];
+    for (const q of [A,C2,B, A,D,C2]) push(q, GROUND-0.05, up, col);
+  }
+  for (let j=0;j<SEG;j++){
+    const A=pt(RINGS,j), B=pt(RINGS,j+1), a=(j+0.5)/SEG*Math.PI*2, nrm=[Math.round(Math.cos(a)*127),0,Math.round(Math.sin(a)*127)], col=[70,70,74];
+    push(A,GROUND-0.05,nrm,col); push(B,GROUND-0.05,nrm,col); push(B,GROUND-0.05-th,nrm,col);
+    push(A,GROUND-0.05,nrm,col); push(B,GROUND-0.05-th,nrm,col); push(A,GROUND-0.05-th,nrm,col);
+  }
+  const n=o.p.length/3+dp.length/3, pos=new Float32Array(n*3), nor=new Int8Array(n*3), col=new Uint8Array(n*3);
+  let top=GROUND;
+  const all=[[o.p,o.n,o.c],[dp,dn,dc]]; let w=0;
+  for (const [p,nn,c] of all) for (let v=0;v<p.length;v+=3,w+=3){
+    pos[w]=(p[v]-x)*s; pos[w+1]=(p[v+1]-GROUND)*s; pos[w+2]=(p[v+2]-z)*s; top=Math.max(top,p[v+1]);
+    nor[w]=nn[v]; nor[w+1]=nn[v+1]; nor[w+2]=nn[v+2]; col[w]=c[v]; col[w+1]=c[v+1]; col[w+2]=c[v+2];
+  }
+  CUT[i]=null;
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor,3,true));
+  g.setAttribute('aCol', new THREE.BufferAttribute(col,3,true));
+  g.computeBoundingSphere();
+  const m=new THREE.Mesh(g, miniMat); m.visible=false; scene.add(m);
+  t.mini=m; t.miniH=(top-GROUND)*s; t.tris=o.p.length/9;
+}
+function buildTargets(){
+  LANDMARKS.forEach(([x, z, r, name, dk, fact, oy], i)=>{
+    let top=GROUND;
+    for (let dz=-25; dz<=25; dz+=2) for (let dx=-25; dx<=25; dx+=2) if (dx*dx+dz*dz<=625) top=Math.max(top, surfaceAt(x+dx, z+dz));
+    const t={ x, z, name, dk, fact, top, c:new V3(x, oy || Math.max(top+ORB_R+6, 24), z) };
+    buildMini(i, t); targets.push(t);
+  });
+  const beamMat = new THREE.ShaderMaterial({
+    uniforms:{ uA:{value:0} }, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide,
+    vertexShader:`varying float vY; void main(){ vY=position.y+0.5; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader:`uniform float uA; varying float vY; void main(){ gl_FragColor=vec4(vec3(1.0,0.66,0.34)*1.4*uA, uA*0.5*smoothstep(0.0,0.15,vY)*(1.0-vY*0.6)); }`
+  });
+  beam = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1, 16, 1, true), beamMat); beam.visible=false; beam.renderOrder=2; scene.add(beam);
+}
+// Six landmarks in a random order, each at least 450 m from the one before (the first from where the glider starts).
+function pickHunt(from){
+  const pool=targets.slice(), out=[]; let px=from.x, pz=from.z;
+  for (let i=pool.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [pool[i],pool[j]]=[pool[j],pool[i]]; }
+  while (out.length<HUNT_N && pool.length){
+    let k=pool.findIndex(t=>Math.hypot(t.x-px, t.z-pz)>=450); if (k<0) k=0;
+    const t=pool.splice(k,1)[0]; out.push(t); px=t.x; pz=t.z;
+  }
+  return out;
+}
+
 /* ---------------------------------------------------------------- glider */
 function buildGlider(){
   const g = new THREE.Group();
@@ -2746,6 +2920,12 @@ function chime(){
     const s=t+k*0.06; g.gain.setValueAtTime(0.0001,s); g.gain.exponentialRampToValueAtTime(0.11,s+0.01); g.gain.exponentialRampToValueAtTime(0.0001,s+0.7);
     o.connect(g); g.connect(master); o.start(s); o.stop(s+0.75); });
 }
+function ping(){
+  if (!AC) return; const t=AC.currentTime;
+  [523.25,659.25,783.99].forEach((f,k)=>{ const o=AC.createOscillator(), g=AC.createGain(); o.type='triangle'; o.frequency.value=f;
+    const s=t+k*0.09; g.gain.setValueAtTime(0.0001,s); g.gain.exponentialRampToValueAtTime(0.06,s+0.02); g.gain.exponentialRampToValueAtTime(0.0001,s+0.5);
+    o.connect(g); g.connect(master); o.start(s); o.stop(s+0.55); });
+}
 function thump(){
   if (!AC) return; const t=AC.currentTime, o=AC.createOscillator(), g=AC.createGain();
   o.type='sine'; o.frequency.setValueAtTime(110,t); o.frequency.exponentialRampToValueAtTime(38,t+0.4);
@@ -2779,7 +2959,10 @@ setSound(soundOn); // label only; audio starts on first click
 let state='loading', T=0, intro=0, fadeIn=0, flash=0;
 const BASE = 34, VMAX = 62, VMIN = 22, CEIL = 240;
 const AP = { s:0, pos:new V3(), prev:new V3(), fwd:new V3(0,0,1), roll:0 };
-const P = { pos:new V3(), prev:new V3(), fwd:new V3(), yaw:0, pitch:0, roll:0, turn:0, speed:BASE, cruise:BASE, gi:0, hits:0, missed:0, time:0, pen:0, grace:0, shake:0, done:false, finT:0, camPos:new V3() };
+const P = { pos:new V3(), prev:new V3(), fwd:new V3(), yaw:0, pitch:0, roll:0, turn:0, speed:BASE, cruise:BASE, time:0, pen:0, grace:0, shake:0, done:false, finT:0, camPos:new V3() };
+// the hunt: list of targets, which one is next, when it was set, how far was flown and how far it was in a straight line,
+// whether its sphere has shown, the sphere's fade (a) and burst (b), the distance trend, and recent safe positions to respawn at
+const HU = { list:[], i:0, t0:0, flown:0, straight:0, shown:false, reveals:0, a:0, b:0, spin:0, burst:null, dPrev:0, trendT:0, trend:0, snaps:[], snapT:0, edge:0 };
 const CD = { t:0, n:0 };
 const _a=new V3(), _b=new V3(), _c=new V3(), _h=new V3(), _up=new V3(), _f=new V3(), _s=new V3();
 
@@ -2823,7 +3006,7 @@ function placeCaption(){
 function startShot(i){
   S.i=i; S.t=0; S.n++; const sh=SHOTS[i]; camera.fov=sh.fov; camera.updateProjectionMatrix();
   if (S.n===1) setCaption('København', city.B ? 'Built from Denmark’s own maps: real footprints, laser-scanned roofs and the 2025 aerial photo.' : '');
-  else if (sh.id==='orbit') setCaption('Fastest lap', best ? 'Your best is '+fmt(best)+'. Press Enter to beat it.' : 'No lap on record yet. Press Enter to fly the 21 gates.');
+  else if (sh.id==='orbit') setCaption('Landmark hunt', best ? 'Your best on '+DIFFS[diff].label+' is '+fmt(best)+'. Press Enter to find six more.' : 'Six landmarks, no map: just a compass and the distance. Press Enter to start.');
   else { const [k,l]=placeCaption(); setCaption(k,l); }
   const g=AP.pos;
   S.side = Math.random()<0.5 ? -1 : 1;
@@ -2882,10 +3065,10 @@ function shotCamera(dt){
 
 /* ---------------------------------------------------------------- UI helpers */
 let toastTimer=0;
-function toast(t, s, kind){
-  const el=$('toast'); $('toast-t').textContent=t; $('toast-s').textContent=s||'';
+function toast(t, s, kind, dur, f){
+  const el=$('toast'); $('toast-t').textContent=t; $('toast-s').textContent=s||''; $('toast-f').textContent=f||'';
   el.classList.remove('small','big'); if (kind) el.classList.add(kind);
-  el.classList.remove('off'); toastTimer = kind==='big' ? 0.8 : 1.4;
+  el.classList.remove('off'); toastTimer = dur || (kind==='big' ? 0.8 : 1.4);
 }
 function show(id, on){ $(id).classList.toggle('off', !on); }
 let hintTimer=0;
@@ -2946,6 +3129,7 @@ addEventListener('keydown', e => {
   if ((e.code==='Enter'||e.code==='Space') && state==='attract' && e.target.tagName!=='BUTTON') startCountdown();
   if (e.code==='Escape' && (state==='play'||state==='countdown')) startAttract(false);
   if (e.code==='KeyM') setSound(!soundOn);
+  if (e.code==='KeyR') reveal();
   if (e.code==='KeyN') setNight(!nightOn);
 });
 addEventListener('keyup', e => { keys[e.code]=false; });
@@ -2978,24 +3162,37 @@ function readInput(){
 $('fly').addEventListener('click', () => { askTilt(); if (state==='attract') startCountdown(); });
 $('again').addEventListener('click', () => { askTilt(); if (state==='attract') startCountdown(); });
 $('watch').addEventListener('click', () => show('result', false));
+$('reveal').addEventListener('click', () => { reveal(); canvas.focus({preventScroll:true}); });
+function setDiff(d){
+  diff=d; store.set('copenaerie-diff', d);
+  best=parseFloat(store.get('copenaerie-hunt-best-'+d)) || 0;
+  document.querySelectorAll('#diff button').forEach(b=>b.setAttribute('aria-checked', b.dataset.d===d ? 'true' : 'false'));
+}
+document.querySelectorAll('#diff button').forEach(b=>b.addEventListener('click', ()=>setDiff(b.dataset.d)));
+setDiff(diff);
 
 /* ---------------------------------------------------------------- modes */
 function resetTrails(){ trails.forEach(t=>t.reset()); }
 function startAttract(showResult){
   state='attract'; fadeIn=0;
-  apReset(showResult ? gates[gates.length-1].s+20 : (S.n ? AP.s : gates[3].s - 150));
+  const G=PATH.gates;
+  apReset(showResult ? G[G.length-1].s+20 : (S.n ? AP.s : G[3].s - 150));
   glider.visible=true; resetTrails();
   startShot(showResult ? 5 : 0);
   show('hud',false); show('brand',true); show('cta',true); show('caption',true); show('sound',true); show('credits',true);
   show('result', !!showResult); $('toast').classList.add('off');
   if (showResult) setTimeout(()=>$('again').focus({preventScroll:true}), 50);
 }
+// The countdown glides up the inner harbour on autopilot; the first landmark is named while it runs.
 function startCountdown(){
   initAudio(); if (AC && AC.state==='suspended') AC.resume();
   state='countdown'; fadeIn=0;
-  P.gi=0; P.hits=0; P.missed=0; P.time=0; P.pen=0; P.done=false; P.finT=0; P.grace=0; P.speed=BASE; P.cruise=BASE;
-  gates.forEach(g=>{ g.anim=9; g.missed=false; });
-  apReset(gates[0].s - 3*BASE - 12);
+  P.time=0; P.pen=0; P.done=false; P.finT=0; P.grace=0; P.speed=BASE; P.cruise=BASE;
+  const g0=PATH.gates.find(g=>g.name==='Inner harbour');
+  apReset(g0.s - 3*BASE - 12);
+  HU.list=pickHunt(g0.c); HU.i=0; HU.t0=0; HU.flown=0; HU.straight=0; HU.reveals=0; HU.b=0; HU.snaps.length=0; HU.snapT=0; HU.edge=0;
+  targets.forEach(t=>{ t.mini.visible=false; });
+  setTarget(0, g0.c);
   glider.position.copy(AP.pos); glider.lookAt(_c.copy(AP.pos).add(AP.fwd)); glider.visible=true; resetTrails();
   P.pos.copy(AP.pos); P.fwd.copy(AP.fwd);
   P.camPos.copy(P.fwd).multiplyScalar(-5.2).add(P.pos); P.camPos.y+=1.5;
@@ -3005,62 +3202,89 @@ function startCountdown(){
   $('hint').classList.remove('off'); hintTimer=7;
   canvas.focus({preventScroll:true});
 }
+function setTarget(i, from){
+  HU.i=i; HU.t0=P.time; HU.shown=false; HU.a=0; HU.trend=0; HU.trendT=0; $('reveal').hidden=false;
+  const t=HU.list[i]; HU.straight+=Math.hypot(t.x-from.x, t.z-from.z); HU.dPrev=Math.hypot(t.x-from.x, t.z-from.z);
+}
 function go(){
   state='play';
   tilt.p0=tilt.live ? tilt.pitch : null;  // the phone's pitch right now is level flight
   P.pos.copy(AP.pos); P.prev.copy(P.pos); P.fwd.copy(AP.fwd);
   P.yaw=Math.atan2(P.fwd.x,P.fwd.z); P.pitch=Math.asin(clamp(P.fwd.y,-1,1)); P.roll=AP.roll; P.turn=0;
-  toast('Go','', 'big');
+  toast('Go', 'Fly to '+callIt(HU.list[0]), 'big', 1.6);
 }
 function finish(){
   P.done=true; P.finT=0;
   const total=P.time+P.pen, isBest = !best || total<best;
-  if (isBest){ best=total; store.set('copenaerie-best', String(total)); }
+  if (isBest){ best=total; store.set('copenaerie-hunt-best-'+diff, String(total)); }
+  $('r-k').textContent='Hunt complete · '+DIFFS[diff].label;
+  $('r-rev').textContent=String(HU.reveals);
+  $('reveal').hidden=true;
   $('r-time').textContent=fmt(total);
-  $('r-gates').textContent=P.hits+' / '+gates.length;
+  $('r-found').textContent=HU.list.length+' / '+HU.list.length;
+  $('r-direct').textContent=Math.round(100*clamp(HU.straight/Math.max(HU.flown,1),0,1))+' %';
   $('r-pen').textContent='+'+P.pen.toFixed(1)+' s';
   $('r-best').textContent=fmt(best);
   $('r-new').hidden=!isBest;
-  toast('Lap complete', fmt(total));
 }
-function respawn(){
-  let s;
-  if (P.gi>0){ const g=gates[P.gi-1]; s=g.s; } else s=gates[0].s - 60;
-  pathPoint(s, P.pos); pathTangent(s, _f);
-  P.yaw=Math.atan2(_f.x,_f.z); P.pitch=0; P.turn=0; P.roll=0; P.speed=BASE; P.cruise=BASE; P.prev.copy(P.pos); P.grace=1.6;
+// Back to where the glider was flying safely about two seconds ago, lifted clear of the roofs; turned round if it
+// left the map.
+function respawn(turn){
+  const q=HU.snaps.length ? HU.snaps[Math.max(0, HU.snaps.length-9)] : { x:P.pos.x, y:P.pos.y, z:P.pos.z, yaw:P.yaw };
+  let top=GROUND;
+  for (let dz=-14; dz<=14; dz+=2) for (let dx=-14; dx<=14; dx+=2) top=Math.max(top, surfaceAt(q.x+dx, q.z+dz));
+  P.pos.set(q.x, clamp(Math.max(q.y, top+8), 0, CEIL-10), q.z);
+  P.yaw=q.yaw+(turn ? Math.PI : 0); P.pitch=0; P.turn=0; P.roll=0; P.speed=BASE; P.cruise=BASE; P.prev.copy(P.pos); P.grace=1.6;
   P.fwd.set(Math.sin(P.yaw),0,Math.cos(P.yaw));
   P.camPos.copy(P.fwd).multiplyScalar(-5.2).add(P.pos); P.camPos.y+=1.5;
-  resetTrails();
+  HU.snaps.length=0; resetTrails();
 }
 function crash(kind){
   P.pen+=3; P.shake=1; flash=0.55; thump();
   toast(kind==='water' ? 'Hit the water' : kind==='street' ? 'Hit the street' : kind==='out' ? 'Left the map' : kind==='bridge' ? 'Hit a bridge' : 'Clipped a building', '+3.0 s');
-  respawn();
+  respawn(kind==='out');
 }
-function hitGate(i){
-  const g=gates[i]; g.anim=0; g.missed=false; P.gi=i+1; P.hits++;
-  P.cruise=Math.min(VMAX-6,P.cruise+7); P.speed=Math.min(VMAX,P.speed+4); chime();
-  if (P.gi<gates.length) toast('Gate '+(i+1), g.name, 'small');
-}
-function markMiss(i){ const g=gates[i]; g.anim=0; g.missed=true; P.gi=i+1; P.pen+=2; P.missed++; toast('Missed gate', '+2.0 s'); }
-function checkGates(){
-  for (let k=0;k<2;k++){
-    const idx=P.gi+k; if (idx>=gates.length) break;
-    const g=gates[idx];
-    const s0=_a.subVectors(P.prev,g.c).dot(g.n), s1=_b.subVectors(P.pos,g.c).dot(g.n);
-    if (s0<0 && s1>=0){
-      _h.lerpVectors(P.prev, P.pos, s0/(s0-s1));
-      const rd=_h.distanceTo(g.c);
-      if (rd<40){
-        if (k===1) markMiss(P.gi);
-        if (rd<g.r+0.3) hitGate(idx); else markMiss(idx);
-        if (P.gi>=gates.length) finish();
-        return;
-      }
-    }
+// Within the difficulty's reveal distance the miniature shows (with a soft chime); flying through it finds the landmark.
+function checkTarget(dt){
+  const t=HU.list[HU.i]; if (!t) return;
+  const d=Math.hypot(P.pos.x-t.x, P.pos.z-t.z);
+  if (!HU.shown && d<DIFFS[diff].reveal){ HU.shown=true; $('reveal').hidden=true; ping(); }
+  // segment prev->pos against the sphere
+  _a.subVectors(P.pos, P.prev); const L2=_a.lengthSq();
+  const u=L2>1e-9 ? clamp(_b.subVectors(t.c, P.prev).dot(_a)/L2, 0, 1) : 0;
+  _h.copy(P.prev).addScaledVector(_a, u);
+  if (HU.shown && _h.distanceTo(t.c)<ORB_R+0.5){
+    const split=P.time-HU.t0; chime();
+    P.cruise=Math.min(VMAX-6,P.cruise+6); P.speed=Math.min(VMAX,P.speed+4);
+    HU.burst=t; HU.b=1;
+    if (HU.i+1<HU.list.length){
+      setTarget(HU.i+1, t);
+      toast(t.name, fmt(split)+' · next: '+callIt(HU.list[HU.i]), 'small', 4.2, t.fact);
+    } else { toast(t.name, 'All six found · '+fmt(P.time+P.pen), 'small', 3.5, t.fact); finish(); }
+    return;
   }
+  // distance trend, judged every half second so it doesn't flicker
+  HU.trendT+=dt;
+  if (HU.trendT>=0.5){ HU.trend = d<HU.dPrev-0.5 ? 1 : d>HU.dPrev+0.5 ? -1 : 0; HU.dPrev=d; HU.trendT=0; }
 }
 
+// Give up on finding it unaided: show the target from wherever the glider is, for a time penalty.
+function reveal(){
+  if (state!=='play' || P.done || HU.shown) return;
+  HU.shown=true; HU.reveals++; P.pen+=REVEAL_PEN; $('reveal').hidden=true; ping();
+  toast('Revealed', '+'+REVEAL_PEN+'.0 s', 'small');
+}
+// Near the map's edge: a warning, then the glider turns itself back toward the middle.
+const EDGE_WARN=320, EDGE_TURN=150;
+function edgeSteer(inp){
+  const e=Math.min(P.pos.x-bounds[0], bounds[2]-P.pos.x, P.pos.z-bounds[1], bounds[3]-P.pos.z);
+  const cx=(bounds[0]+bounds[2])/2, cz=(bounds[1]+bounds[3])/2, want=Math.atan2(cx-P.pos.x, cz-P.pos.z);
+  let d=want-P.yaw; d=Math.atan2(Math.sin(d), Math.cos(d));          // how far off the heading to the middle
+  const outward=Math.abs(d)>Math.PI/2;
+  if (e<EDGE_TURN && (outward || HU.edge===2) && Math.abs(d)>0.35){ HU.edge=2; inp.turn=clamp(d*2.5,-1,1); inp.pitch=Math.max(inp.pitch,0); }
+  else HU.edge = e<EDGE_WARN && outward ? 1 : 0;
+  return inp;
+}
 function playCamera(dt){
   _a.copy(P.fwd).multiplyScalar(-5.2).add(P.pos); _a.y+=1.5;
   P.camPos.lerp(_a, damp(13,dt)); keepAbove(P.camPos, 1.0);
@@ -3090,7 +3314,7 @@ function updateCountdown(dt){
 
 function updatePlay(dt){
   if (!P.done) P.time+=dt; else P.finT+=dt;
-  const inp = P.done ? { turn:0, pitch:0 } : readInput();
+  const inp = P.done ? { turn:0, pitch:0 } : edgeSteer(readInput());
   P.turn += (inp.turn-P.turn)*damp(6,dt);
   P.yaw += P.turn*1.55*dt;
   P.pitch += (inp.pitch*0.7-P.pitch)*damp(2.8,dt);
@@ -3101,6 +3325,7 @@ function updatePlay(dt){
   P.fwd.set(Math.sin(P.yaw)*Math.cos(P.pitch), Math.sin(P.pitch), Math.cos(P.yaw)*Math.cos(P.pitch));
   P.prev.copy(P.pos);
   P.pos.addScaledVector(P.fwd, P.speed*dt);
+  if (!P.done) HU.flown+=Math.hypot(P.pos.x-P.prev.x, P.pos.z-P.prev.z);
   if (P.pos.y>CEIL){ P.pos.y=CEIL; if (P.pitch>0) P.pitch*=0.9; }
   glider.position.copy(P.pos); glider.rotation.set(-P.pitch, P.yaw, P.roll, 'YXZ');
   if (P.grace>0){ P.grace-=dt; glider.visible = Math.floor(P.grace*12)%2===0 || P.grace<=0; } else glider.visible=true;
@@ -3109,21 +3334,28 @@ function updatePlay(dt){
   const surf=surfaceAt(P.pos.x,P.pos.z);
   if (P.done){ if (P.pos.y<surf+3) P.pos.y=surf+3; }
   else if (P.grace<=0){
-    const out=P.pos.x<bounds[0]+40 || P.pos.x>bounds[2]-40 || P.pos.z<bounds[1]+40 || P.pos.z>bounds[3]-40;
+    const out=P.pos.x<bounds[0]+20 || P.pos.x>bounds[2]-20 || P.pos.z<bounds[1]+20 || P.pos.z>bounds[3]-20;
     if (out) crash('out');
     else if (P.pos.y<surf+0.5) crash(surf<0.5 ? 'water' : surf<=GROUND+0.05 ? 'street' : 'building');
     else { const di=deckIdx(P.pos.x,P.pos.z); if (di>=0 && P.pos.y>DB[di]/10-0.3 && P.pos.y<DT[di]/10+0.4) crash('bridge'); }
   }
-  if (!P.done) checkGates();
+  if (!P.done){
+    checkTarget(dt);
+    HU.snapT+=dt;
+    if (HU.snapT>=0.25){ HU.snapT=0; if (P.grace<=0 && P.pos.y>surf+5){ HU.snaps.push({ x:P.pos.x, y:P.pos.y, z:P.pos.z, yaw:P.yaw }); if (HU.snaps.length>16) HU.snaps.shift(); } }
+  }
   playCamera(dt);
-  if (P.done && P.finT>1.1) startAttract(true);
+  if (P.done && P.finT>3.2) startAttract(true);
 }
 
 function updateHud(){
   if (state!=='play' && state!=='countdown') return;
-  const gi=Math.min(P.gi+1,gates.length);
-  $('v-gate').innerHTML=String(gi).padStart(2,'0')+'<small>/'+gates.length+'</small>';
-  $('v-where').textContent = P.gi<gates.length ? gates[P.gi].name : '';
+  const t=HU.list[HU.i], n=HU.list.length;
+  $('v-k').textContent = P.done ? 'All found' : 'Fly to · '+(HU.i+1)+' of '+n;
+  $('v-target').textContent = t ? callIt(t) : '';
+  $('v-where').textContent = t && !DIFFS[diff].danish ? t.dk : '';
+  $('edge').classList.toggle('off', state!=='play' || P.done || !HU.edge);
+  $('edge').textContent = HU.edge===2 ? 'Edge of the map · turning back' : 'Edge of the map ahead';
   $('v-time').textContent=fmt(P.time);
   $('i-pen').textContent = P.pen>0 ? '+'+P.pen.toFixed(1)+' s penalty' : '';
   $('v-spd').innerHTML=Math.round(P.speed*3.6)+'<small>km/h</small>';
@@ -3132,15 +3364,23 @@ function updateHud(){
   const cw=$('compass').clientWidth;
   $('tape').style.transform='translateX('+(cw/2-(hdg+360)*2)+'px)';
   $('hdg').textContent=String(Math.round(hdg)%360).padStart(3,'0')+'°';
-  // next-gate marker, pinned to the screen edge when off-screen
+  // distance to the landmark, flat, with whether it's closing or opening
+  const di=$('i-dist');
+  if (!t || P.done){ di.style.visibility='hidden'; }
+  else {
+    di.style.visibility='';
+    const d=Math.hypot(P.pos.x-t.x, P.pos.z-t.z), tr=state==='play' ? HU.trend : 0;
+    $('v-range').innerHTML=Math.round(d).toLocaleString('en')+'<small>m</small>'+(tr>0 ? '<i>▼</i>' : tr<0 ? '<i>▲</i>' : '');
+    di.classList.toggle('closing', tr>0); di.classList.toggle('opening', tr<0);
+  }
+  // once the sphere has shown, a marker points to it, pinned to the screen edge when off-screen
   const mk=$('marker');
-  if (P.gi>=gates.length || P.done){ mk.style.display='none'; }
+  if (!t || P.done || !HU.shown){ mk.style.display='none'; }
   else {
     mk.style.display='';
-    const g=gates[P.gi];
     camera.getWorldDirection(_f);
-    const behind=_f.dot(_a.subVectors(g.c,camera.position))<0;
-    _s.copy(g.c).project(camera);
+    const behind=_f.dot(_a.subVectors(t.c,camera.position))<0;
+    _s.copy(t.c).project(camera);
     let sx=(_s.x*0.5+0.5)*W, sy=(-_s.y*0.5+0.5)*Hh;
     const m=48;
     const on=!behind && sx>m && sx<W-m && sy>m && sy<Hh-m;
@@ -3153,27 +3393,33 @@ function updateHud(){
     }
     mk.classList.toggle('edge', !on);
     mk.style.transform='translate('+sx.toFixed(1)+'px,'+sy.toFixed(1)+'px)';
-    $('v-dist').textContent=Math.round(P.pos.distanceTo(g.c))+' m';
+    $('v-dist').textContent=Math.round(P.pos.distanceTo(t.c))+' m';
   }
   const aim=$('aim');
   if (mouse.active && state==='play'){ aim.hidden=false; aim.style.transform='translate('+((mouse.x*0.5+0.5)*W)+'px,'+((mouse.y*0.5+0.5)*Hh)+'px)'; }
   else aim.hidden=true;
 }
 
-function updateGates(dt){
-  for (let i=0;i<gates.length;i++){
-    const g=gates[i]; let vis=true, c, op, sc=1;
-    if (state==='attract'){ c=0.95+0.25*Math.sin(T*2+i); op=0.8; }
-    else if (i<P.gi){
-      if (g.anim<0.6){ g.anim+=dt; sc=1+g.anim*1.4; op=1-g.anim/0.6; c=g.missed?1.2:4.5; } else vis=false;
-    }
-    else if (i===P.gi){ c=3.2+1.3*Math.sin(T*6); op=1; }
-    else if (i===P.gi+1){ c=1.3; op=0.85; }
-    else { c=0.6; op=0.45; }
-    g.mesh.visible=vis; if (!vis) continue;
-    if (g.missed && i<P.gi) g.mat.color.setRGB(0.6*c,0.65*c,0.8*c); else g.mat.color.setRGB(c,0.52*c,0.22*c);
-    g.mat.opacity=op; g.mesh.scale.setScalar(sc);
+// The target miniature grows in once shown, turning slowly; a found one spins up and shrinks away where it was.
+function updateMini(dt){
+  if (state==='still') return;
+  const t=state==='play' && !P.done ? HU.list[HU.i] : null;
+  HU.spin+=dt*0.45;
+  for (const q of targets) if (q!==t && q!==HU.burst) q.mini.visible=false;
+  const place=(q, sc, spin)=>{ const m=q.mini; m.visible=sc>0.001; m.scale.setScalar(sc); m.rotation.y=spin; m.position.set(q.c.x, q.c.y-q.miniH*sc/2, q.c.z); };
+  if (HU.burst && HU.b>0){
+    HU.b=Math.max(0, HU.b-dt/0.6); const e=HU.b;
+    place(HU.burst, e*e*(1+0.4*(1-e)), HU.spin+(1-e)*(1-e)*9);
+    if (HU.b===0){ HU.burst.mini.visible=false; HU.burst=null; }
   }
+  if (t && HU.shown){
+    HU.a=Math.min(1, HU.a+dt/0.9);
+    const e=HU.a, back=1+2.2*(e-1)**3+1.2*(e-1)**2;                     // ease out with a little overshoot
+    if (t!==HU.burst) place(t, back, HU.spin);
+    const y0=t.top, h=Math.max(t.c.y-t.miniH/2-y0, 0.1);
+    beam.visible=true; beam.position.set(t.x, y0+h/2, t.z); beam.scale.set(1, h, 1); beam.material.uniforms.uA.value=HU.a;
+  } else beam.visible=false;
+  miniMat.uniforms.uNight.value=night;
 }
 
 let sunVis=0;
@@ -3225,7 +3471,7 @@ function loop(now){
   frame(dt, true);
 }
 // #debug: advance the simulation by fixed steps, for capturing stills from a background tab
-if (location.hash==='#debug') window.__dbg = { U, cascades, scene, shadowScene, camera, groundMat, cityMat, waterMat, aoMat, compMat, rtAO, get city(){ return city; }, get movers(){ return movers; }, get AP(){ return AP; }, get P(){ return P; },
+if (location.hash==='#debug') window.__dbg = { U, cascades, scene, shadowScene, camera, groundMat, cityMat, waterMat, aoMat, compMat, rtAO, get city(){ return city; }, get movers(){ return movers; }, get AP(){ return AP; }, get P(){ return P; }, get HU(){ return HU; }, targets,
   // drop the glider into free flight at p heading along yaw, e.g. to try a bridge
   place(p, yaw){ state='play'; P.done=false; P.pos.set(p[0],p[1],p[2]); P.prev.copy(P.pos); P.yaw=yaw; P.pitch=0; P.turn=0; P.roll=0; P.speed=BASE; P.cruise=BASE; P.grace=0;
     P.fwd.set(Math.sin(yaw),0,Math.cos(yaw)); P.camPos.copy(P.fwd).multiplyScalar(-5.2).add(P.pos); P.camPos.y+=1.5; resetTrails(); },
@@ -3242,12 +3488,12 @@ function frame(dt, draw){
     shotCamera(dt);
     fade *= smoothstep(0,0.3,S.t)*smoothstep(0,0.25,SHOTS[S.i].dur-S.t);
   } else if (state==='countdown') updateCountdown(dt);
-  else if (state==='play'){ updatePlay(dt); if (P.done) fade*=1-smoothstep(0.2,1.1,P.finT); }
+  else if (state==='play'){ updatePlay(dt); if (P.done) fade*=1-smoothstep(2.2,3.2,P.finT); }
   if (toastTimer>0){ toastTimer-=dt; if (toastTimer<=0) $('toast').classList.add('off'); }
   if (hintTimer>0){ hintTimer-=dt; if (hintTimer<=0) $('hint').classList.add('off'); }
   flash=Math.max(0,flash-dt*2.2);
   compMat.uniforms.uFade.value=fade; compMat.uniforms.uFlash.value=flash;
-  updateGates(dt); updateTrails(); updateBars(dt); updateSun(dt); updateAudio(); updateHud(); updatePhotos(dt); updateMovers(); updateNight(dt);
+  updateMini(dt); updateTrails(); updateBars(dt); updateSun(dt); updateAudio(); updateHud(); updatePhotos(dt); updateMovers(); updateNight(dt);
   if (draw) render();
 }
 

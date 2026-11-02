@@ -1,6 +1,6 @@
 # CopenAerie
 
-A small glider run through central Copenhagen at golden hour, built from Denmark's open map data: real building footprints, laser-scanned roofs and the 2025 aerial photo. It opens with a self-running cinematic flyby. Press **Enter** (or click **Fly the city**) to race a 21-gate lap: down Christianshavns Kanal, across the inner harbour to the Opera, over Amalienborg and the Marble Church, down Bredgade, through Nyhavn, over Knippelsbro and round the Christiansborg tower.
+A small glider run through central Copenhagen at golden hour, built from Denmark's open map data: real building footprints, laser-scanned roofs and the 2025 aerial photo. It opens with a self-running cinematic flyby. Press **Enter** (or click **Fly the city**) for a landmark hunt: the game names six of 31 landmarks, one at a time, and you have to find them with no map, only a compass and the distance to the target, which turns amber while you close in and blue while you drift away. Close to the landmark a grey miniature of it grows in overhead, turning slowly: every triangle of the city within a set radius of the landmark, cut out of the map, shrunk to about 17 m across and set on a round plinth that shows land and water. Fly through it to find the landmark and get the next one. Easy shows the miniature from 150 m, Normal from 75 m and Hard from 40 m, and Hard names each landmark only in Danish. Stuck? **Reveal** (or **R**) shows the miniature from anywhere, for 30 s. Your time is the score, with 3 s added for each crash, and each difficulty keeps its own best. The results also show how direct your route was: the straight-line distance between targets divided by the distance you flew. Near the edge of the map a warning comes up, and then the glider turns itself back toward the middle.
 
 This is the city sibling of [Aerie](https://github.com/jacobla1/aerie). The glider is scaled down to a 3.6 m model so it fits Copenhagen's streets and canals, and you can fly under the bridges: 39 of them, from the canal bridges of Christianshavn and Slotsholmen to Knippelsbro, Langebro and Inderhavnsbroen.
 
@@ -17,6 +17,7 @@ python3 -m http.server 8765
 
 - Mouse, arrow keys or WASD to steer
 - On phones and tablets, tilt to steer: bank the phone like a steering wheel to turn, tip the top edge away to dive and back to climb. Level is however the phone is held when the run starts. The **Tilt** button switches back to dragging on the screen. Add `?tilt=1` to try it with a desktop browser's sensor emulation
+- **R** (or the **Reveal** button) shows where the current landmark is, for a 30 s penalty
 - **Esc** returns to the flyby
 - **M** toggles sound
 - **N** switches between dusk and night
